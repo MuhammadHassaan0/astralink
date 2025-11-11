@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>AstraLink Chat</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+  <script src="/app.js" defer></script>
+  <style type="text/tailwindcss">
+    body {
+      font-family: 'Inter', sans-serif;
+      background: radial-gradient(circle at top, #0b1023, #05060b 70%);
+      min-height: 100vh;
+      color: #f5f5f5;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .aurora-background {
+      background: linear-gradient(-45deg, #0A0E27, #8B7FD610, #6EACDA10, #0A0E27);
+      background-size: 400% 400%;
+      animation: subtle-aurora 30s ease infinite;
+    }
+    @keyframes subtle-aurora {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    .chat-shell {
+      backdrop-filter: blur(22px);
+      background: rgba(6, 10, 22, 0.85);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 24px;
+      max-width: 1180px;
+      min-height: 82vh;
+      margin: 4vh auto;
+      box-shadow: 0 35px 120px rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+    .chat-layout {
+      display: flex;
+      min-height: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .conversation-panel {
+      width: 270px;
+      border-right: 1px solid rgba(255,255,255,0.08);
+      padding: 24px 18px;
+      background: rgba(6, 10, 22, 0.75);
+    }
+    .conversation-list {
+      margin-top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: calc(82vh - 140px);
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+    .conversation-button {
+      width: 100%;
+      text-align: left;
+      border-radius: 16px;
+      padding: 12px;
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all 0.2s ease;
+    }
+    .conversation-button.active {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.15);
+      box-shadow: 0 10px 22px rgba(0,0,0,0.35);
+    }
+    .conversation-button:not(.active):hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.12);
+    }
+    .conversation-button .rename-btn {
+      color: rgba(255,255,255,0.55);
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      transition: all 0.2s ease;
+    }
+    .conversation-button .rename-btn:hover {
+      color: #fff;
+      border-color: rgba(255,255,255,0.3);
+    }
+    .rename-panel input {
+      width: 100%;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 6px 10px;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+    .rename-panel input:focus-visible {
+      outline: none;
+      border-color: rgba(255,255,255,0.35);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+    }
+    .rename-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .rename-actions button {
+      flex: 1;
+      border-radius: 999px;
+      padding: 4px 0;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: transparent;
+      color: rgba(255,255,255,0.75);
+      transition: all 0.2s ease;
+    }
+    .rename-actions button:hover {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      border-color: rgba(255,255,255,0.35);
+    }
+    .auth-gate-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(3,4,10,0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+    .auth-gate-card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(6, 10, 22, 0.95);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
+      padding: 2rem;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+      text-align: left;
+    }
+    .auth-gate-card h2 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      margin-bottom: 0.6rem;
+    }
+    .auth-gate-card p {
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+    .auth-gate-card label {
+      display: block;
+      font-size: 0.85rem;
+      color: rgba(255,255,255,0.75);
+      margin-top: 0.6rem;
+      margin-bottom: 0.25rem;
+    }
+    .auth-gate-card input {
+      width: 100%;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 0.65rem 0.85rem;
+      color: #fff;
+      font-size: 0.95rem;
+    }
+    .auth-gate-card input:focus-visible {
+      outline: none;
+      border-color: rgba(255,255,255,0.35);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.18);
+    }
+    .auth-gate-card button[type="submit"] {
+      width: 100%;
+      border: none;
+      border-radius: 999px;
+      padding: 0.85rem 1rem;
+      margin-top: 1.2rem;
+      background: linear-gradient(90deg, #8B7FD6, #6EACDA);
+      color: #050910;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: opacity 0.2s ease;
+    }
+    .auth-gate-card button[type="submit"]:hover {
+      opacity: 0.9;
+    }
+    #authGateError {
+      margin-top: 0.75rem;
+      color: #ffb7b7;
+      font-size: 0.85rem;
+      min-height: 1em;
+    }
+    .chat-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.3) transparent;
+    }
+    .message-bubble {
+      animation: fade-pop 0.4s ease both;
+      max-width: 70%;
+      line-height: 1.45;
+    }
+    @keyframes fade-pop {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes typing {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    .typing-dot {
+      animation: typing 1.2s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    #chatInput {
+      color: #f5f5f5;
+      caret-color: #6EACDA;
+      font-size: 1rem;
+    }
+    #chatInput::placeholder {
+      color: rgba(255,255,255,0.55);
+    }
+    .soft-button {
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 999px;
+      padding: 0.35rem 1rem;
+      color: rgba(255,255,255,0.8);
+      font-size: 0.8rem;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .soft-button:hover, .soft-button:focus-visible {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.25);
+      outline: none;
+    }
+    .avatar-circle {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #8B7FD6, #6EACDA);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      color: #0a0e27;
+      flex-shrink: 0;
+    }
+    #errorBanner {
+      display: none;
+      border-radius: 12px;
+      background: rgba(255, 119, 119, 0.12);
+      border: 1px solid rgba(255,119,119,0.3);
+      color: #ffb7b7;
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+    }
+    @media (max-width: 1024px) {
+      .chat-shell { margin: 16px; }
+      .conversation-panel { width: 220px; }
+    }
+    @media (max-width: 860px) {
+      .chat-layout { flex-direction: column; }
+      .conversation-panel { width: 100%; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.08); }
+      .conversation-list { max-height: 180px; }
+    }
+  </style>
+</head>
+<body class="font-display px-4 py-6">
+  <div class="chat-shell relative">
+    <div class="aurora-background absolute inset-0 opacity-50 pointer-events-none"></div>
+    <div class="chat-layout relative">
+      <aside class="conversation-panel" data-animate>
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <p class="text-sm uppercase tracking-[0.3em] text-white/50">Saved chats</p>
+            <p class="text-base text-white/80">With your person</p>
+          </div>
+          <button id="newConversationBtn" class="soft-button" type="button">New chat</button>
+        </div>
+        <div id="conversationList" class="conversation-list mt-5 text-sm text-white/70">
+          <p class="text-white/50 text-xs">Loading…</p>
+        </div>
+      </aside>
+      <section class="flex-1 flex flex-col">
+        <header class="p-6 pb-4 border-b border-white/10" data-animate>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p id="chatContactName" class="text-2xl font-semibold text-white">Your loved one</p>
+              <p id="chatRelationshipLine" class="text-sm text-white/70">You’re connected</p>
+            </div>
+            <div class="flex items-center gap-3 text-xs text-white/60">
+              <span id="chatSessionStatus">Session —</span>
+              <button id="chatLogoutBtn" class="text-white/70 hover:text-white transition-colors" type="button">Log out</button>
+              <a href="/interview" aria-label="Edit profile" class="flex items-center justify-center size-9 rounded-full border border-white/15 text-white/70 hover:text-white hover:border-white/40 transition-colors">
+                <span class="material-symbols-outlined text-2xl">settings</span>
+              </a>
+            </div>
+          </div>
+          <p class="text-center text-xs text-white/65 mt-4">It’s safe to share anything here. They’re listening.</p>
+        </header>
+        <div id="errorBanner"></div>
+        <main id="chatScroll" class="flex-1 overflow-y-auto chat-scroll p-6 space-y-5" data-animate data-animate-delay="120ms">
+          <div id="chatMessages" class="space-y-4"></div>
+          <div id="chatEmptyState" class="text-center text-white/70 text-sm py-8">
+            Whenever you’re ready, start with a few words. They’ll meet you there.
+          </div>
+        </main>
+        <footer class="p-6 pt-0 border-t border-white/10">
+          <div class="flex flex-wrap items-center gap-3 mb-3">
+            <button class="soft-button" type="button">Take a break</button>
+          </div>
+          <div class="flex items-center gap-4 bg-white/5 rounded-2xl p-3 border border-white/10 focus-within:ring-2 focus-within:ring-[#6EACDA]/40 transition-shadow">
+            <textarea id="chatInput" class="w-full resize-none bg-transparent text-white text-base placeholder:text-white/50 focus:outline-none" rows="1" placeholder="What’s on your mind?"></textarea>
+            <button id="sendBtn" aria-label="Send message" class="flex items-center justify-center size-11 bg-[#6EACDA] rounded-xl text-[#081225] shadow-lg hover:shadow-[#6EACDA]/50 transition-all" type="button">
+              <span class="material-symbols-outlined text-2xl">send</span>
+            </button>
+          </div>
+          <p id="chatStatusText" class="text-xs text-white/60 mt-2"></p>
+        </footer>
+      </section>
+    </div>
+  </div>
+  <div id="authGateOverlay" class="auth-gate-overlay hidden">
+    <div class="auth-gate-card">
+      <h2>Let’s keep your memories safe.</h2>
+      <p>You’ve started a conversation that matters. To save it — and make sure only you can return to it — create your private Astralink space.</p>
+      <p class="text-sm text-white/70">It takes less than 30 seconds, and your memories stay encrypted and secure.</p>
+      <form id="authGateForm" class="mt-4">
+        <label for="authGateEmail">Email</label>
+        <input id="authGateEmail" type="email" placeholder="you@example.com" required />
+        <label for="authGatePassword">Password</label>
+        <input id="authGatePassword" type="password" placeholder="********" required />
+        <label for="authGateName">What should we call you? (optional)</label>
+        <input id="authGateName" type="text" placeholder="Your name" />
+        <button type="submit">Save this memory and continue</button>
+        <p id="authGateError"></p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+
+      const conversationListEl = document.getElementById("conversationList");
+      const newConversationBtn = document.getElementById("newConversationBtn");
+      const messagesEl = document.getElementById("chatMessages");
+      const emptyState = document.getElementById("chatEmptyState");
+      const chatScroll = document.getElementById("chatScroll");
+      const chatInput = document.getElementById("chatInput");
+      const sendBtn = document.getElementById("sendBtn");
+      const statusText = document.getElementById("chatStatusText");
+      const errorBanner = document.getElementById("errorBanner");
+      const contactName = document.getElementById("chatContactName");
+      const relationshipLine = document.getElementById("chatRelationshipLine");
+      const sessionStatus = document.getElementById("chatSessionStatus");
+      const logoutBtn = document.getElementById("chatLogoutBtn");
+      const authGateOverlay = document.getElementById("authGateOverlay");
+      const authGateForm = document.getElementById("authGateForm");
+      const authGateEmail = document.getElementById("authGateEmail");
+      const authGatePassword = document.getElementById("authGatePassword");
+      const authGateName = document.getElementById("authGateName");
+      const authGateError = document.getElementById("authGateError");
+
+      function cleanRelationshipText(text) {
+        if (!text) return "";
+        let clean = text.replace(/^(?:i\s*['’]?\s*m|i\s+am)\s+/i, "").trim();
+        clean = clean.replace(/^(?:his|her|their|my|our|the)\s+/i, "").trim();
+        return clean;
+      }
+
+      const profile = Astralink.getProfile() || {};
+      if (profile.name) contactName.textContent = profile.name;
+      const relDisplay = cleanRelationshipText(profile.relationship);
+      if (relDisplay) relationshipLine.textContent = `You’re their ${relDisplay}`;
+
+      let conversations = [];
+      let activeConversationId = null;
+      let sending = false;
+      let typingIndicatorEl = null;
+      let renamingConversationId = null;
+      const renameDrafts = {};
+      let assistantReplyCount = 0;
+      let gateActive = false;
+
+      function updateSessionStatus() {
+        const sid = Astralink.getSessionId();
+        sessionStatus.textContent = sid ? `Session ${sid.slice(0, 8)}…` : "No session yet";
+        if (Astralink.isAuthenticated()) {
+          logoutBtn.classList.remove("hidden");
+        } else {
+          logoutBtn.classList.add("hidden");
+        }
+      }
+
+      function showError(message) {
+        errorBanner.textContent = message;
+        errorBanner.style.display = "block";
+      }
+
+      function hideError() {
+        errorBanner.style.display = "none";
+      }
+
+      function scrollToBottom() {
+        requestAnimationFrame(() => {
+          chatScroll.scrollTop = chatScroll.scrollHeight;
+        });
+      }
+
+      function formatTime(ts) {
+        if (!ts) return "";
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      }
+
+      function formatListTime(ts) {
+        if (!ts) return "";
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) return "";
+        const day = date.toLocaleDateString([], { month: "short", day: "numeric" });
+        const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        return `${day} · ${time}`;
+      }
+
+      function renderConversationList() {
+        if (!conversations.length) {
+          conversationListEl.innerHTML = '<p class="text-white/50 text-xs">No conversations yet.</p>';
+          return;
+        }
+        conversationListEl.innerHTML = "";
+        conversations.forEach((convo) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.dataset.convoId = convo.id;
+          btn.className = `conversation-button ${convo.id === activeConversationId ? "active" : ""}`;
+          if (renamingConversationId === convo.id) {
+            const draftValue = (renameDrafts[convo.id] ?? convo.title ?? "Untitled chat");
+            btn.innerHTML = `
+              <div class="rename-panel">
+                <input type="text" value="${draftValue.replace(/"/g, "&quot;")}" data-rename-input="${convo.id}" placeholder="Rename chat" />
+                <div class="rename-actions">
+                  <button type="button" data-rename-save="${convo.id}">Save</button>
+                  <button type="button" data-rename-cancel="${convo.id}">Cancel</button>
+                </div>
+              </div>
+            `;
+          } else {
+            btn.innerHTML = `
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <p class="text-sm text-white line-clamp-1">${convo.title || "Untitled chat"}</p>
+                  <p class="text-xs text-white/60">${formatListTime(convo.updated_at)}</p>
+                </div>
+                <button type="button" class="rename-btn" data-rename-id="${convo.id}">Rename</button>
+              </div>
+            `;
+          }
+          conversationListEl.appendChild(btn);
+        });
+      }
+
+      function showAuthGate() {
+        gateActive = true;
+        authGateOverlay.classList.remove("hidden");
+        chatInput.disabled = true;
+        sendBtn.disabled = true;
+        chatInput.blur();
+      }
+
+      function hideAuthGate() {
+        gateActive = false;
+        authGateOverlay.classList.add("hidden");
+        chatInput.disabled = false;
+        sendBtn.disabled = false;
+        authGateError.textContent = "";
+        authGateForm.classList.remove("opacity-60", "pointer-events-none");
+      }
+
+      function maybeTriggerGate() {
+        if (Astralink.isAuthenticated() || gateActive) return;
+        if (assistantReplyCount < 4) return;
+        showAuthGate();
+      }
+
+      function renderMessages(messages) {
+        messagesEl.innerHTML = "";
+        if (!messages || !messages.length) {
+          emptyState.classList.remove("hidden");
+          return;
+        }
+        emptyState.classList.add("hidden");
+        messages.forEach((msg) => {
+          messagesEl.appendChild(buildMessage(msg));
+        });
+        scrollToBottom();
+      }
+
+      function buildMessage(message) {
+        const role = message.role === "assistant" ? "assistant" : "user";
+        const wrapper = document.createElement("div");
+        wrapper.className = `flex items-end gap-3 ${role === "user" ? "justify-end text-right" : ""}`;
+        const bubbleWrap = document.createElement("div");
+        bubbleWrap.className = `flex flex-col gap-1 ${role === "user" ? "items-end" : "items-start"}`;
+        if (role !== "user") {
+          const avatar = document.createElement("div");
+          avatar.className = "avatar-circle";
+          avatar.textContent = (profile.name || "A").charAt(0).toUpperCase();
+          wrapper.appendChild(avatar);
+        } else {
+          const spacer = document.createElement("div");
+          spacer.style.width = "34px";
+          wrapper.appendChild(spacer);
+        }
+        const bubble = document.createElement("p");
+        bubble.className = role === "user"
+          ? "message-bubble bg-white/15 text-white px-4 py-3 rounded-2xl rounded-br-sm shadow"
+          : "message-bubble bg-white/10 text-white/90 px-4 py-3 rounded-2xl rounded-bl-sm shadow";
+        bubble.textContent = message.text || "";
+        const ts = document.createElement("span");
+        ts.className = "text-[11px] text-white/50";
+        ts.textContent = formatTime(message.ts);
+        bubbleWrap.appendChild(bubble);
+        bubbleWrap.appendChild(ts);
+        wrapper.appendChild(bubbleWrap);
+        return wrapper;
+      }
+
+      function addTypingIndicator() {
+        const indicator = document.createElement("div");
+        indicator.className = "flex items-end gap-3";
+        indicator.innerHTML = `
+          <div class="flex flex-col items-start">
+            <div class="flex items-center gap-2 rounded-xl rounded-bl-sm px-4 py-3 bg-white/10 text-white shadow">
+              <div class="w-2 h-2 bg-white/70 rounded-full typing-dot"></div>
+              <div class="w-2 h-2 bg-white/70 rounded-full typing-dot"></div>
+              <div class="w-2 h-2 bg-white/70 rounded-full typing-dot"></div>
+            </div>
+          </div>`;
+        messagesEl.appendChild(indicator);
+        scrollToBottom();
+        typingIndicatorEl = indicator;
+      }
+
+      function clearTypingIndicator() {
+        if (typingIndicatorEl && typingIndicatorEl.parentNode) {
+          typingIndicatorEl.remove();
+        }
+        typingIndicatorEl = null;
+      }
+
+      async function loadConversations(selectId) {
+        try {
+          const list = await Astralink.listConversations();
+          conversations = list;
+          if (!conversations.length) {
+            const created = await Astralink.createConversation();
+            conversations = [created];
+          }
+          if (selectId) {
+            activeConversationId = selectId;
+          } else if (!activeConversationId && conversations.length) {
+            activeConversationId = conversations[0].id;
+          }
+          renderConversationList();
+          if (activeConversationId) {
+            await openConversation(activeConversationId);
+          }
+        } catch (err) {
+          showError(err.message || "Unable to load conversations.");
+        }
+      }
+
+      async function openConversation(convoId) {
+        if (!convoId) return;
+        try {
+          hideError();
+          const convo = await Astralink.getConversation(convoId);
+          activeConversationId = convo.id;
+          renderConversationList();
+          renderMessages(convo.messages || []);
+        } catch (err) {
+          showError(err.message || "Unable to fetch this chat.");
+        }
+      }
+
+      async function ensureConversation() {
+        if (activeConversationId) return activeConversationId;
+        const convo = await Astralink.createConversation();
+        conversations.unshift(convo);
+        activeConversationId = convo.id;
+        renderConversationList();
+        renderMessages([]);
+        assistantReplyCount = 0;
+        return activeConversationId;
+      }
+
+      async function handleSend() {
+        if (sending) return;
+        if (gateActive && !Astralink.isAuthenticated()) {
+          showError("Create your Astralink space to keep chatting.");
+          return;
+        }
+        const message = chatInput.value.trim();
+        if (!message) return;
+        sending = true;
+        sendBtn.disabled = true;
+        statusText.textContent = "";
+        hideError();
+
+        await ensureConversation();
+
+        const optimistic = { role: "user", text: message, ts: new Date().toISOString() };
+        emptyState.classList.add("hidden");
+        messagesEl.appendChild(buildMessage(optimistic));
+        scrollToBottom();
+        chatInput.value = "";
+        addTypingIndicator();
+
+        try {
+          const response = await Astralink.sendConversationMessage(activeConversationId, message);
+          clearTypingIndicator();
+          renderMessages(response.messages || []);
+          assistantReplyCount += 1;
+          maybeTriggerGate();
+          await loadConversations(activeConversationId);
+        } catch (err) {
+          clearTypingIndicator();
+          showError(err.message || "We’re having trouble reaching them right now. Try again in a moment.");
+          await openConversation(activeConversationId);
+        } finally {
+          sending = false;
+          sendBtn.disabled = false;
+        }
+      }
+
+      conversationListEl.addEventListener("click", (event) => {
+        const renameTarget = event.target.closest("button[data-rename-id]");
+        if (renameTarget) {
+          event.stopPropagation();
+          const convoId = renameTarget.dataset.renameId;
+          const current = (conversations.find((c) => c.id === convoId) || {}).title || "Untitled chat";
+          renamingConversationId = convoId;
+          renameDrafts[convoId] = current;
+          renderConversationList();
+          requestAnimationFrame(() => {
+            const inputEl = conversationListEl.querySelector(`input[data-rename-input="${convoId}"]`);
+            if (inputEl) {
+              inputEl.focus();
+              inputEl.select();
+            }
+          });
+          return;
+        }
+        const saveTarget = event.target.closest("button[data-rename-save]");
+        if (saveTarget) {
+          event.stopPropagation();
+          const convoId = saveTarget.dataset.renameSave;
+          const draft = (renameDrafts[convoId] || "").trim();
+          if (!draft) {
+            showError("Title cannot be empty.");
+            return;
+          }
+          Astralink.renameConversation(convoId, draft)
+            .then(() => {
+              renamingConversationId = null;
+              delete renameDrafts[convoId];
+              loadConversations(convoId);
+            })
+            .catch((err) => showError(err.message || "Could not rename chat."));
+          return;
+        }
+        const cancelTarget = event.target.closest("button[data-rename-cancel]");
+        if (cancelTarget) {
+          event.stopPropagation();
+          const convoId = cancelTarget.dataset.renameCancel;
+          renamingConversationId = null;
+          delete renameDrafts[convoId];
+          renderConversationList();
+          return;
+        }
+        const button = event.target.closest("button[data-convo-id]");
+        if (!button) return;
+        if (renamingConversationId) {
+          return;
+        }
+        const convoId = button.dataset.convoId;
+        if (convoId === activeConversationId) return;
+        activeConversationId = convoId;
+        openConversation(convoId);
+      });
+
+      conversationListEl.addEventListener("input", (event) => {
+        const input = event.target.closest("input[data-rename-input]");
+        if (!input) return;
+        renameDrafts[input.dataset.renameInput] = input.value;
+      });
+
+      newConversationBtn.addEventListener("click", async () => {
+        try {
+          const convo = await Astralink.createConversation();
+          conversations.unshift(convo);
+          activeConversationId = convo.id;
+          renderConversationList();
+          renderMessages([]);
+          assistantReplyCount = 0;
+          if (gateActive && Astralink.isAuthenticated()) {
+            hideAuthGate();
+          }
+        } catch (err) {
+          showError(err.message || "Could not create a new chat.");
+        }
+      });
+
+      chatInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          handleSend();
+        }
+      });
+      sendBtn.addEventListener("click", handleSend);
+      logoutBtn.addEventListener("click", async () => {
+        await Astralink.logoutAccount();
+        window.location.href = "/auth.html";
+      });
+
+      updateSessionStatus();
+      loadConversations();
+
+      authGateForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const email = (authGateEmail.value || "").trim().toLowerCase();
+        const password = (authGatePassword.value || "").trim();
+        const name = (authGateName.value || "").trim();
+        if (!email || !password) {
+          authGateError.textContent = "Please enter an email and password.";
+          return;
+        }
+        authGateError.textContent = "";
+        authGateForm.classList.add("opacity-60", "pointer-events-none");
+
+        const finalize = async () => {
+          hideAuthGate();
+          assistantReplyCount = 0;
+          await loadConversations(activeConversationId);
+          updateSessionStatus();
+        };
+
+        try {
+          await Astralink.signupAccount(name, email, password);
+          await finalize();
+          return;
+        } catch (signupErr) {
+          const msg = (signupErr && signupErr.message) || "";
+          if (/exists/i.test(msg)) {
+            try {
+              await Astralink.loginAccount(email, password);
+              await finalize();
+              return;
+            } catch (loginErr) {
+              authGateError.textContent = loginErr.message || "Unable to log you in with those details.";
+            }
+          } else {
+            authGateError.textContent = msg || "Unable to create your space right now.";
+          }
+        } finally {
+          authGateForm.classList.remove("opacity-60", "pointer-events-none");
+        }
+      });
+    });
+  </script>
+</body>
+</html>

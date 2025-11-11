@@ -1,0 +1,58 @@
+{
+  "m.hassaan.haroonn@gmail.com": {
+    "name": "Mohammad Hassaan",
+    "salt": "830981a7fd1b541d38465bbafb03cab8",
+    "password": "b29cd0fed0dfecf6408148a20184194ae2653c7e64ab4c368a01d22cd84fd4fe",
+    "session_id": "d02e4eaf13394ae4ae1c6b53b1ff0af9",
+    "profile": {
+      "name": "usman",
+      "relationship": "brother",
+      "call_you": "bro",
+      "mode": "memory",
+      "traits": [
+        "persistent",
+        "extroverted",
+        "jolly",
+        "chill"
+      ],
+      "catchphrases": []
+    }
+  },
+  "altmanhassaan@gmail.com": {
+    "name": "Mohammad Hassaan",
+    "salt": "0446950a2d3454576d9f42abf95416b7",
+    "password": "a150718262d58bc835a35351b12e8c355ecc6714b06cfb5dbc52ca674fc141ff",
+    "session_id": "a533a6b01b894fb39f814e90367d2d14",
+    "profile": {
+      "name": "haroon",
+      "relationship": "son",
+      "call_you": "beta",
+      "mode": "memory",
+      "traits": [
+        "caring",
+        "loving",
+        "disciplined",
+        "egoistic"
+      ],
+      "catchphrases": []
+    }
+  },
+  "hassaanmanagement@gmail.com": {
+    "name": "Altman",
+    "salt": "c51e00608021963299a5b4b2392c7205",
+    "password": "db63326501dfeae8d7eb681a5a6a951fb83bce8ac6f717480d8d93847fc16a89",
+    "session_id": "d5cd7cb4efb345218b00f4f9d90e3811",
+    "profile": {
+      "name": "haroon",
+      "relationship": "im his son",
+      "call_you": "champ, king , legend",
+      "mode": "memory",
+      "traits": [
+        "caring",
+        "loving",
+        "hard working"
+      ],
+      "catchphrases": []
+    }
+  }
+}

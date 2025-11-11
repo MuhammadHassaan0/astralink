@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>AstraLink – Memories</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Spectral:wght@500;600&display=swap" rel="stylesheet"/>
+  <script src="/app.js" defer></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0A0E27;
+      color: #f5f5f5;
+    }
+    .container-shell {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+    .section-card {
+      background: rgba(10, 13, 27, 0.82);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 24px;
+      padding: 28px 32px;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(20px);
+    }
+    .drop-zone {
+      border: 2px dashed rgba(255,255,255,0.2);
+      border-radius: 20px;
+      padding: 40px;
+      text-align: center;
+      background: rgba(255,255,255,0.02);
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .drop-zone.dragover {
+      border-color: #6EACDA;
+      background: rgba(110,172,218,0.08);
+    }
+    .brand-mark {
+      font-family: 'Spectral', serif;
+      letter-spacing: 0.05em;
+      font-size: 1.3rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container-shell space-y-8">
+    <header class="flex items-center justify-between">
+      <a href="/" class="brand-mark text-white">AstraLink</a>
+      <nav class="hidden md:flex gap-6 text-sm text-white/70">
+        <a href="/" class="hover:text-white">Home</a>
+        <a href="/how" class="hover:text-white">How it works</a>
+        <a href="/profile" class="hover:text-white">Profile</a>
+        <a href="/chat" class="hover:text-white">Chat</a>
+      </nav>
+      <div class="flex items-center gap-3 text-sm text-white/70">
+        <span id="sessionBadge">Session —</span>
+        <button id="logoutBtn" class="px-3 py-1 border border-white/20 rounded-full hover:bg-white/10 transition">Log out</button>
+      </div>
+    </header>
+
+    <section class="section-card space-y-6">
+      <div class="text-center space-y-3">
+        <p class="text-xs uppercase tracking-[0.3em] text-white/60">Step 2</p>
+        <h1 class="text-3xl font-semibold" style="font-family:'Spectral',serif;">Upload their memories</h1>
+        <p class="text-white/70 text-sm max-w-2xl mx-auto">Bring in journals, notes, letters, or transcripts. The richer the memories, the more grounded every chat feels.</p>
+      </div>
+
+      <div id="uploadDropZone" class="drop-zone cursor-pointer">
+        <p class="text-lg font-semibold">Drag & Drop files here</p>
+        <p class="text-white/60 text-sm">We currently support text or CSV files. Zipped folders of text are okay too.</p>
+        <button id="browseBtn" type="button" class="mt-4 px-5 py-2 border border-white/15 rounded-full text-sm text-white/80 hover:bg-white/10 transition">Browse files</button>
+        <input id="memFiles" type="file" multiple class="hidden" />
+        <p id="fileInfo" class="text-white/60 text-sm mt-3">No files selected yet</p>
+      </div>
+
+      <label class="text-sm text-white/70 space-y-1">
+        Optional note or pasted memory
+        <textarea id="uploadNote" rows="4" class="w-full rounded-2xl px-4 py-3 bg-white/5 border border-white/10 text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#6EACDA]" placeholder="Paste a story or context here…"></textarea>
+      </label>
+
+      <div class="space-y-3">
+        <div class="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+          <div id="uploadProgress" class="h-full w-0 bg-gradient-to-r from-[#6EACDA] to-[#8B7FD6] transition-all duration-500"></div>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <button id="uploadBtn" class="px-6 py-3 rounded-full bg-gradient-to-r from-[#6EACDA] to-[#8B7FD6] text-primary font-semibold shadow-lg hover:opacity-90 transition">Save memories</button>
+          <p id="uploadStatus" class="text-sm text-white/70"></p>
+        </div>
+      </div>
+
+      <div class="text-center text-sm text-white/70">
+        When you’re ready, continue to the <a href="/interview" class="text-[#8B7FD6] underline">AI interview →</a>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const memInput = document.getElementById("memFiles");
+      const uploadStatus = document.getElementById("uploadStatus");
+      const uploadProgress = document.getElementById("uploadProgress");
+      const uploadNote = document.getElementById("uploadNote");
+      const fileInfo = document.getElementById("fileInfo");
+      const dropZone = document.getElementById("uploadDropZone");
+      const sessionBadge = document.getElementById("sessionBadge");
+      const logoutBtn = document.getElementById("logoutBtn");
+
+      function updateSessionBadge() {
+        const sid = Astralink.getSessionId();
+        sessionBadge.textContent = sid ? `Session ${sid.slice(0, 8)}…` : "Session —";
+      }
+
+      function describeFiles(files) {
+        if (!files.length) return "No files selected yet";
+        if (files.length === 1) return files[0].name;
+        return `${files.length} files selected`;
+      }
+
+      function setFilesFromDrag(fileList) {
+        const dt = new DataTransfer();
+        Array.from(fileList).forEach((file) => dt.items.add(file));
+        memInput.files = dt.files;
+        fileInfo.textContent = describeFiles(dt.files);
+      }
+
+      document.getElementById("browseBtn").addEventListener("click", () => memInput.click());
+      memInput.addEventListener("change", () => {
+        fileInfo.textContent = describeFiles(memInput.files);
+      });
+
+      dropZone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        dropZone.classList.add("dragover");
+      });
+      dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+      dropZone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        dropZone.classList.remove("dragover");
+        if (event.dataTransfer?.files?.length) {
+          setFilesFromDrag(event.dataTransfer.files);
+        }
+      });
+
+      document.getElementById("uploadBtn").addEventListener("click", async () => {
+        const sid = Astralink.getSessionId();
+        const note = uploadNote.value.trim();
+        const files = memInput.files;
+        if (!note && (!files || !files.length)) {
+          uploadStatus.textContent = "Add a note or choose files first.";
+          return;
+        }
+
+        uploadStatus.textContent = "Uploading…";
+        uploadProgress.style.width = "65%";
+
+        const fd = new FormData();
+        if (sid) fd.append("session_id", sid);
+        if (note) fd.append("note", note);
+        Array.from(files || []).forEach((file) => fd.append("files", file));
+
+        const headers = {};
+        const token = Astralink.getAuthToken();
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        try {
+          const res = await fetch("/api/upload_memories", { method: "POST", headers, body: fd });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || "Upload failed");
+          if (data.session_id) {
+            Astralink.setSessionId(data.session_id);
+            updateSessionBadge();
+          }
+          uploadProgress.style.width = "100%";
+          uploadStatus.textContent = `Saved ${data.count || 0} item(s).`;
+          uploadNote.value = "";
+          memInput.value = "";
+          fileInfo.textContent = "No files selected yet";
+        } catch (err) {
+          uploadProgress.style.width = "0%";
+          uploadStatus.textContent = err.message || "Upload failed.";
+        } finally {
+          setTimeout(() => { uploadProgress.style.width = "0%"; }, 1200);
+        }
+      });
+
+      function configureAuthButton() {
+        if (Astralink.isAuthenticated()) {
+          logoutBtn.textContent = "Log out";
+          logoutBtn.addEventListener("click", async () => {
+            await Astralink.logoutAccount();
+            window.location.reload();
+          });
+        } else {
+          logoutBtn.textContent = "Log in";
+          logoutBtn.addEventListener("click", () => {
+            window.location.href = "/auth.html";
+          });
+        }
+      }
+
+      updateSessionBadge();
+      configureAuthButton();
+    });
+  </script>
+</body>
+</html>

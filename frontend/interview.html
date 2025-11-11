@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>AstraLink - Tell Us About Your Loved One</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+  <script src="/app.js" defer></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#8B7FD6",
+            accent: "#6EACDA",
+            "text-primary": "#F5F5F5",
+            "text-secondary": "#B0B0B0",
+            "deep-space-navy": "#0A0E27"
+          },
+          fontFamily: {
+            display: ["Inter", "sans-serif"]
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+            lg: "1rem",
+            xl: "1.5rem",
+            "2xl": "1rem",
+            full: "9999px"
+          },
+          boxShadow: {
+            "glow-purple": "0 0 20px rgba(139, 127, 214, 0.35)",
+            "glow-blue": "0 0 20px rgba(110, 172, 218, 0.35)"
+          }
+        },
+      },
+    };
+  </script>
+  <style>
+    body {
+      background-color: #0A0E27;
+      background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100%25" height="100%25" viewBox="0 0 1600 800"%3E%3Cg stroke="%23FFFFFF" stroke-width="0.5" stroke-opacity="0.1"%3E%3Ccircle fill="%230A0E27" cx="0" cy="0" r="1800"/%3E%3Ccircle fill="%230c102a" cx="0" cy="0" r="1700"/%3E%3Ccircle fill="%230e122d" cx="0" cy="0" r="1600"/%3E%3Ccircle fill="%230f1430" cx="0" cy="0" r="1500"/%3E%3Ccircle fill="%23111633" cx="0" cy="0" r="1400"/%3E%3Ccircle fill="%23131837" cx="0" cy="0" r="1300"/%3E%3Ccircle fill="%23151b3a" cx="0" cy="0" r="1200"/%3E%3Ccircle fill="%23171d3d" cx="0" cy="0" r="1100"/%3E%3Ccircle fill="%23191f40" cx="0" cy="0" r="1000"/%3E%3Ccircle fill="%231b2143" cx="0" cy="0" r="900"/%3E%3Ccircle fill="%231d2346" cx="0" cy="0" r="800"/%3E%3Ccircle fill="%231f264a" cx="0" cy="0" r="700"/%3E%3Ccircle fill="%2321284d" cx="0" cy="0" r="600"/%3E%3Ccircle fill="%23232a50" cx="0" cy="0" r="500"/%3E%3Ccircle fill="%23252c53" cx="0" cy="0" r="400"/%3E%3Ccircle fill="%23272e56" cx="0" cy="0" r="300"/%3E%3Ccircle fill="%23293059" cx="0" cy="0" r="200"/%3E%3Ccircle fill="%232b325c" cx="0" cy="0" r="100"/%3E%3C/g%3E%3C/svg%3E');
+      background-attachment: fixed;
+      background-size: cover;
+      color: #F5F5F5;
+      font-family: 'Inter', sans-serif;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(12px);
+    }
+    .upload-dashed {
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .upload-dashed.dragover {
+      border-color: #6EACDA;
+      background: rgba(110, 172, 218, 0.08);
+    }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen flex flex-col">
+    <header class="flex items-center justify-between px-6 py-4 md:px-10 text-text-secondary" data-animate>
+      <a href="/" class="text-lg font-bold tracking-tight text-text-primary">AstraLink</a>
+      <nav class="hidden md:flex gap-6 text-sm">
+        <a href="/" class="hover:text-white">Home</a>
+        <a href="/how" class="hover:text-white">How it works</a>
+        <span class="text-white font-semibold">Build</span>
+        <a href="/chat" class="hover:text-white">Chat</a>
+      </nav>
+      <div class="flex items-center gap-3">
+        <a href="/chat" class="text-sm font-semibold text-white/90 border border-white/30 rounded-full px-4 py-1.5 hover:bg-white/10">Go to chat</a>
+        <button id="logoutBtn" class="text-sm text-white/70 hover:text-white">Log out</button>
+      </div>
+    </header>
+    <main class="flex-1 px-4 sm:px-8 lg:px-16 xl:px-28 py-6">
+      <div class="max-w-5xl mx-auto space-y-10">
+        <div class="text-center space-y-3">
+          <p class="text-primary text-sm uppercase tracking-[0.2em]">Memorial builder</p>
+          <h1 class="text-3xl md:text-4xl font-black text-text-primary">Tell Us About Your Loved One</h1>
+        <p class="text-text-secondary max-w-2xl mx-auto">Upload memories, capture their voice, and let AstraLink craft a private conversational space that feels like them.</p>
+        </div>
+
+        <section class="glass-card rounded-2xl p-6 md:p-8 space-y-6" data-animate>
+          <div class="flex flex-wrap items-center gap-3 justify-between">
+            <div>
+              <h2 class="text-xl font-semibold text-text-primary">Profile</h2>
+              <p class="text-sm text-text-secondary">Who are they to you?</p>
+            </div>
+            <span id="sessionBadge" class="text-xs px-3 py-1 rounded-full border border-white/20 text-text-secondary">No session yet</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label class="text-sm text-text-secondary space-y-1">
+              Their name
+              <input id="profileName" type="text" class="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2.5 text-text-primary placeholder:text-text-secondary/60" placeholder="e.g., Haroon" />
+            </label>
+            <label class="text-sm text-text-secondary space-y-1">
+              Relationship
+              <input id="profileRelationship" type="text" class="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2.5 text-text-primary placeholder:text-text-secondary/60" placeholder="I'm his son" />
+            </label>
+            <label class="text-sm text-text-secondary space-y-1">
+              They call you
+              <input id="profileCallYou" type="text" class="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2.5 text-text-primary placeholder:text-text-secondary/60" placeholder="beta, love, champ" />
+            </label>
+            <label class="text-sm text-text-secondary space-y-1">
+              Mode
+              <select id="profileMode" class="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2.5 text-text-primary">
+                <option value="memory">In Memory (passed)</option>
+                <option value="alive">Alive / Unavailable</option>
+              </select>
+            </label>
+            <label class="text-sm text-text-secondary space-y-1 md:col-span-2">
+              Traits (comma separated)
+              <input id="profileTraits" type="text" class="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2.5 text-text-primary placeholder:text-text-secondary/60" placeholder="caring, practical, witty" />
+            </label>
+            <label class="text-sm text-text-secondary space-y-1 md:col-span-2">
+              Catchphrases (comma separated)
+              <input id="profileCatchphrases" type="text" class="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-2.5 text-text-primary placeholder:text-text-secondary/60" placeholder="one step at a time, focus first" />
+            </label>
+          </div>
+          <div class="flex flex-wrap items-center gap-4">
+            <button id="saveProfileBtn" class="flex items-center justify-center rounded-2xl px-6 py-3 bg-primary text-white font-semibold hover:bg-primary/80 shadow-glow-purple transition">
+              Save profile
+            </button>
+            <p id="profileStatus" class="text-sm text-text-secondary"></p>
+          </div>
+        </section>
+
+        <section class="glass-card rounded-2xl p-6 md:p-8 space-y-6" data-animate data-animate-delay="80ms">
+          <div class="flex flex-col gap-2 text-center">
+            <p class="text-2xl font-bold text-text-primary">Upload their memories</p>
+            <p class="text-sm text-text-secondary">Photos, journals, letters—anything that captures them. We only accept text/CSV right now.</p>
+          </div>
+          <div id="uploadDropZone" class="upload-dashed rounded-2xl px-6 py-10 flex flex-col items-center gap-4 text-center cursor-pointer">
+            <span class="material-symbols-outlined text-4xl text-text-secondary">cloud_upload</span>
+            <p class="text-text-primary text-lg font-semibold">Drag & Drop memories here</p>
+            <p class="text-text-secondary text-sm" id="uploadFileInfo">No files selected yet</p>
+            <button id="uploadBrowseBtn" type="button" class="rounded-full border border-white/20 px-5 py-2 text-sm font-semibold text-white hover:bg-white/10">Browse files</button>
+            <input id="memFiles" type="file" multiple class="hidden" />
+          </div>
+          <textarea id="uploadNote" rows="3" class="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-text-primary placeholder:text-text-secondary/50" placeholder="Optional note or pasted memory text"></textarea>
+          <div class="space-y-3">
+            <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+              <div id="uploadProgressFill" class="h-full w-0 bg-accent transition-all duration-500"></div>
+            </div>
+            <div class="flex flex-wrap items-center gap-3 text-sm">
+              <button id="uploadBtn" class="rounded-2xl px-5 py-2.5 bg-white/10 text-white font-semibold hover:bg-white/20 transition">Save memories</button>
+              <span id="uploadStatus" class="text-text-secondary"></span>
+            </div>
+            <p id="savedNote" class="text-xs text-text-secondary/80"></p>
+            <div class="text-center">
+              <button id="skipUploadBtn" class="text-text-secondary text-sm underline hover:text-white">Skip for now →</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="glass-card rounded-2xl p-6 md:p-8 space-y-6" data-animate data-animate-delay="160ms">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="text-xl font-semibold text-text-primary">Guided AI Interview</h3>
+              <p class="text-sm text-text-secondary">Answer a few prompts. We will summarize them into memories.</p>
+            </div>
+            <span id="interviewStatus" class="text-sm text-text-secondary"></span>
+          </div>
+          <div class="space-y-4">
+            <p id="interviewQuestion" class="text-lg font-semibold text-text-primary">Press “Start interview” to get the first question.</p>
+            <textarea id="interviewAnswer" rows="4" class="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-text-primary placeholder:text-text-secondary/50" placeholder="Type your answer..." disabled></textarea>
+            <div class="flex flex-wrap gap-3">
+              <button id="startInterviewBtn" class="rounded-2xl px-5 py-2.5 bg-primary text-white font-semibold hover:bg-primary/80 transition shadow-glow-purple">Start interview</button>
+              <button id="submitAnswerBtn" class="rounded-2xl px-5 py-2.5 bg-white/10 text-white font-semibold disabled:opacity-40 hover:bg-white/20 transition" disabled>Submit answer</button>
+              <button id="pauseInterviewBtn" class="rounded-2xl px-5 py-2.5 border border-white/20 text-text-secondary hover:bg-white/5 transition">Pause</button>
+            </div>
+          </div>
+          <div id="interviewSummaryWrap" class="hidden border border-white/10 rounded-xl p-4">
+            <p class="text-sm text-text-secondary mb-2">Summary saved to memories:</p>
+            <pre id="interviewSummary" class="text-xs whitespace-pre-wrap text-text-primary"></pre>
+          </div>
+        </section>
+        <section id="chatCTA" class="glass-card rounded-2xl p-6 md:p-10 space-y-4 hidden flex flex-col items-center text-center" data-animate data-animate-delay="220ms">
+          <p class="text-primary text-sm font-semibold tracking-[0.3em] uppercase">Next</p>
+          <h3 class="text-2xl md:text-3xl font-bold text-text-primary">You’re ready to hear their voice.</h3>
+          <p class="text-text-secondary max-w-2xl mx-auto">Move into the chat space whenever you’re ready. Everything you saved now shapes their responses.</p>
+          <button id="ctaChatBtn" class="rounded-full px-8 py-3 bg-gradient-to-r from-primary to-accent text-white font-semibold shadow-glow-purple hover:translate-y-[-1px] transition">Chat with them</button>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const sessionBadge = document.getElementById("sessionBadge");
+      const profileStatus = document.getElementById("profileStatus");
+      const inputs = {
+        name: document.getElementById("profileName"),
+        relationship: document.getElementById("profileRelationship"),
+        call_you: document.getElementById("profileCallYou"),
+        mode: document.getElementById("profileMode"),
+        traits: document.getElementById("profileTraits"),
+        catchphrases: document.getElementById("profileCatchphrases"),
+      };
+      const memInput = document.getElementById("memFiles");
+      const uploadInfo = document.getElementById("uploadFileInfo");
+      const uploadStatus = document.getElementById("uploadStatus");
+      const uploadProgress = document.getElementById("uploadProgressFill");
+      const savedNote = document.getElementById("savedNote");
+      const dropZone = document.getElementById("uploadDropZone");
+      const noteInput = document.getElementById("uploadNote");
+      const interviewQuestion = document.getElementById("interviewQuestion");
+      const interviewAnswer = document.getElementById("interviewAnswer");
+      const interviewStatus = document.getElementById("interviewStatus");
+      const interviewSummaryWrap = document.getElementById("interviewSummaryWrap");
+      const interviewSummary = document.getElementById("interviewSummary");
+      const submitAnswerBtn = document.getElementById("submitAnswerBtn");
+      const chatCTA = document.getElementById("chatCTA");
+      const ctaChatBtn = document.getElementById("ctaChatBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+
+      let interviewing = false;
+      let profileComplete = !!Astralink.getSessionId();
+      let uploadComplete = false;
+      let interviewComplete = false;
+
+      function updateSessionBadge() {
+        const sid = Astralink.getSessionId();
+        if (sid) {
+          sessionBadge.textContent = `Session ${sid.slice(0, 8)}…`;
+          sessionBadge.classList.remove("border-white/20");
+          sessionBadge.classList.add("border-accent", "text-accent");
+        } else {
+          sessionBadge.textContent = "No session yet";
+          sessionBadge.className = "text-xs px-3 py-1 rounded-full border border-white/20 text-text-secondary";
+        }
+      }
+
+      function loadProfileFromStorage() {
+        const stored = Astralink.getProfile();
+        if (!stored) return;
+        inputs.name.value = stored.name || "";
+        inputs.relationship.value = stored.relationship || "";
+        inputs.call_you.value = stored.call_you || "";
+        inputs.mode.value = stored.mode || "memory";
+        inputs.traits.value = (stored.traits || []).join(", ");
+        inputs.catchphrases.value = (stored.catchphrases || []).join(", ");
+      }
+
+      function updateCTA() {
+        if (!profileComplete || !uploadComplete || !interviewComplete) return;
+        if (chatCTA.classList.contains("hidden")) {
+          chatCTA.classList.remove("hidden");
+          chatCTA.classList.add("flex");
+        }
+        chatCTA.classList.add("is-visible");
+      }
+
+      function splitList(value) {
+        return (value || "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+      }
+
+      function collectProfile() {
+        return {
+          name: inputs.name.value.trim(),
+          relationship: inputs.relationship.value.trim(),
+          call_you: inputs.call_you.value.trim(),
+          mode: Astralink.normalizeMode(inputs.mode.value),
+          traits: splitList(inputs.traits.value),
+          catchphrases: splitList(inputs.catchphrases.value),
+        };
+      }
+
+      async function handleSaveProfile() {
+        const profile = collectProfile();
+        profileStatus.textContent = "Saving…";
+        try {
+          const data = await Astralink.saveProfile(profile);
+          profileStatus.textContent = "Saved. Session ready.";
+          updateSessionBadge();
+          profileComplete = true;
+          updateCTA();
+        } catch (err) {
+          profileStatus.textContent = err.message || "Save failed";
+        }
+      }
+
+      function describeFiles(files) {
+        if (!files.length) return "No files selected yet";
+        if (files.length === 1) return files[0].name;
+        return `${files.length} files selected`;
+      }
+
+      function setFilesFromDrag(list) {
+        if (!window.DataTransfer) return;
+        const dt = new DataTransfer();
+        Array.from(list).forEach((file) => dt.items.add(file));
+        memInput.files = dt.files;
+        uploadInfo.textContent = describeFiles(dt.files);
+      }
+
+      async function handleUpload() {
+        try {
+          const sid = Astralink.getSessionId();
+          const note = noteInput.value.trim();
+          const files = memInput.files;
+          if (!note && (!files || !files.length)) {
+            uploadStatus.textContent = "Add a note or choose files first.";
+            return;
+          }
+          const fd = new FormData();
+          if (sid) fd.append("session_id", sid);
+          if (note) fd.append("note", note);
+          Array.from(files || []).forEach((file) => fd.append("files", file));
+          uploadStatus.textContent = "Uploading…";
+          uploadProgress.style.width = "65%";
+          const headers = {};
+          if (sid) headers["X-Astralink-Session"] = sid;
+          const res = await fetch("/api/upload_memories", { method: "POST", headers, body: fd });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || "Upload failed");
+          if (data.session_id) {
+            Astralink.setSessionId(data.session_id);
+            updateSessionBadge();
+          }
+          uploadProgress.style.width = "100%";
+          uploadStatus.textContent = `Saved ${data.count || 0} item(s).`;
+          uploadComplete = true;
+          updateCTA();
+          if (note) savedNote.textContent = `Last note saved: ${note}`;
+          noteInput.value = "";
+          memInput.value = "";
+          uploadInfo.textContent = "No files selected yet";
+          setTimeout(() => {
+            uploadProgress.style.width = "0%";
+          }, 1200);
+        } catch (err) {
+          uploadStatus.textContent = err.message || "Upload failed";
+          uploadProgress.style.width = "0%";
+        }
+      }
+
+      function setInterviewQuestion(text) {
+        interviewQuestion.textContent = text || "(no question)";
+        interviewAnswer.value = "";
+        interviewAnswer.disabled = false;
+        interviewAnswer.focus();
+        submitAnswerBtn.disabled = false;
+        interviewing = true;
+      }
+
+      async function startInterview() {
+        try {
+          const sid = Astralink.getSessionId();
+          interviewStatus.textContent = "Preparing…";
+          const payload = {};
+          if (sid) payload.session_id = sid;
+          const data = await Astralink.postJSON("/api/interview/start", payload);
+          if (data.session_id) {
+            Astralink.setSessionId(data.session_id);
+            updateSessionBadge();
+          } else if (data.session) {
+            Astralink.setSessionId(data.session);
+            updateSessionBadge();
+          }
+          const question = data.question;
+          if (question) {
+            setInterviewQuestion(question);
+            interviewStatus.textContent = "";
+          } else {
+            interviewStatus.textContent = "No question returned.";
+          }
+          interviewSummaryWrap.classList.add("hidden");
+        } catch (err) {
+          interviewStatus.textContent = err.message || "Could not start interview.";
+        }
+      }
+
+      async function submitInterviewAnswer() {
+        if (!interviewing) return;
+        const answer = interviewAnswer.value.trim();
+        if (!answer) {
+          interviewStatus.textContent = "Please type an answer.";
+          return;
+        }
+        submitAnswerBtn.disabled = true;
+        interviewStatus.textContent = "Saving answer…";
+        try {
+          const sid = Astralink.getSessionId();
+          const payload = { answer };
+          if (sid) payload.session_id = sid;
+          const data = await Astralink.postJSON("/api/interview/answer", payload);
+          if (data.session_id) {
+            Astralink.setSessionId(data.session_id);
+            updateSessionBadge();
+          } else if (data.session) {
+            Astralink.setSessionId(data.session);
+            updateSessionBadge();
+          }
+          if (data.done) {
+            interviewStatus.textContent = "Interview complete. Summary saved.";
+            interviewSummary.textContent = data.summary || "";
+            interviewSummaryWrap.classList.remove("hidden");
+            interviewAnswer.value = "";
+            interviewAnswer.disabled = true;
+            submitAnswerBtn.disabled = true;
+            interviewing = false;
+            interviewComplete = true;
+            updateCTA();
+          } else if (data.next_question) {
+            setInterviewQuestion(data.next_question);
+            interviewStatus.textContent = "";
+          } else {
+            interviewStatus.textContent = "Waiting for next question…";
+          }
+        } catch (err) {
+          interviewStatus.textContent = err.message || "Could not save answer.";
+          submitAnswerBtn.disabled = false;
+        }
+      }
+
+      function pauseInterview() {
+        interviewing = false;
+        interviewAnswer.disabled = true;
+        submitAnswerBtn.disabled = true;
+        interviewStatus.textContent = "Interview paused.";
+      }
+
+      document.getElementById("saveProfileBtn").addEventListener("click", handleSaveProfile);
+      document.getElementById("logoutBtn").addEventListener("click", async () => {
+        await Astralink.logoutAccount();
+        window.location.href = "/auth.html";
+      });
+      document.getElementById("uploadBrowseBtn").addEventListener("click", () => memInput.click());
+      document.getElementById("uploadBtn").addEventListener("click", handleUpload);
+      document.getElementById("skipUploadBtn").addEventListener("click", () => window.location.href = "/chat");
+      memInput.addEventListener("change", () => {
+        uploadInfo.textContent = describeFiles(memInput.files);
+      });
+      dropZone.addEventListener("click", () => memInput.click());
+      dropZone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        dropZone.classList.add("dragover");
+      });
+      dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+      dropZone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        dropZone.classList.remove("dragover");
+        if (event.dataTransfer?.files?.length) {
+          setFilesFromDrag(event.dataTransfer.files);
+        }
+      });
+      document.getElementById("startInterviewBtn").addEventListener("click", startInterview);
+      submitAnswerBtn.addEventListener("click", submitInterviewAnswer);
+      document.getElementById("pauseInterviewBtn").addEventListener("click", pauseInterview);
+      ctaChatBtn.addEventListener("click", () => {
+        window.location.href = "/chat";
+      });
+
+      loadProfileFromStorage();
+      updateSessionBadge();
+      uploadInfo.textContent = describeFiles(memInput.files);
+      updateCTA();
+    });
+  </script>
+</body>
+</html>

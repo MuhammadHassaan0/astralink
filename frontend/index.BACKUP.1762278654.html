@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Astralink (Test UI)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; 
+           padding: 24px; max-width: 720px; margin: 0 auto; background: #f9fafb; }
+    input, button, select { font-size: 16px; padding: 6px; margin: 4px; }
+    button { cursor: pointer; border-radius: 6px; border: 1px solid #aaa; background: white; }
+    .row { margin-bottom: 12px; }
+    .bubble { padding: 10px; border-radius: 12px; margin: 6px 0; }
+    .user { background: #d8eaff; align-self: flex-end; }
+    .assistant { background: #e9e9e9; align-self: flex-start; }
+    .chat { display: flex; flex-direction: column; gap: 6px; 
+            border: 1px solid #ccc; border-radius: 12px; 
+            padding: 10px; min-height: 160px; max-height: 420px; overflow-y: auto; }
+    .badge { font-size: 12px; border: 1px solid #ccc; padding: 4px 6px; border-radius: 999px; margin-left: 6px; }
+  </style>
+</head>
+
+<body>
+  <h1>Astralink (Test UI)</h1>
+
+  <div class="row">
+    <label>Name: <input id="name" placeholder="e.g. Dad" value="Dad" /></label>
+  </div>
+  <div class="row">
+    <label>Your relationship to them: <input id="relationship" placeholder="e.g. son/daughter/friend" value="son" /></label>
+  </div>
+  <div class="row">
+    <label>What do they call you? <input id="call_you" placeholder="e.g. beta / sweetheart" value="betay" /></label>
+  </div>
+  <div class="row">
+    <label>Traits (comma-separated): <input id="traits" placeholder="gentle, practical" value="gentle, practical" /></label>
+  </div>
+  <div class="row">
+    <label>Catchphrases (comma-separated): <input id="catch" placeholder="one step at a time" value="one step at a time" /></label>
+  </div>
+  <div class="row">
+    <label>Mode (who are they?): 
+      <select id="mode">
+        <option value="memory">Memory (they’ve passed away)</option>
+        <option value="living">Living (you can still talk)</option>
+      </select>
+    </label>
+  </div>
+
+  <button id="buildBtn">Save profile</button>
+  <span id="sessionInfo">Session: —</span>
+
+  <h3>Chat <span id="credits" class="badge"></span></h3>
+  <div id="chat" class="chat"></div>
+
+  <div class="row">
+    <input id="msg" placeholder="Type a message…" style="width:70%;" />
+    <button id="sendBtn">Send</button>
+  </div>
+
+  <div class="row">
+    <button id="endBtn">End session & get reflection</button>
+  </div>
+
+  <pre id="reflection"></pre>
+
+  <script>
+    // ---------- Utilities ----------
+    let session_id = null;
+    function el(id){ return document.getElementById(id); }
+    function addBubble(text, who){
+      const div = document.createElement('div');
+      div.className = `bubble ${who}`;
+      div.textContent = text;
+      el('chat').appendChild(div);
+      el('chat').scrollTop = el('chat').scrollHeight;
+    }
+
+    // ---------- SAVE PROFILE ----------
+    el('buildBtn').onclick = async () => {
+      try {
+        const payload = {
+          name: el('name').value.trim(),
+          relationship: el('relationship').value.trim(),
+          call_you: el('call_you').value.trim(),
+          traits: el('traits').value.split(',').map(s=>s.trim()).filter(Boolean),
+          catchphrases: el('catch').value.split(',').map(s=>s.trim()).filter(Boolean),
+          mode: el('mode').value
+        };
+
+        const res = await fetch('/api/build', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        session_id = data.session_id;
+
+        el('sessionInfo').textContent = 'Session: ' + session_id;
+        const badge = el('credits');
+        if (badge) badge.textContent = (data.credits ?? 0) + ' messages';
+        console.log('[save] ok', data);
+
+      } catch (err) {
+        alert('Save failed: ' + err.message);
+        console.error(err);
+      }
+    };
+
+    // ---------- CHAT ----------
+    el('sendBtn').onclick = async () => {
+      if (!session_id) return alert('Please save profile first.');
+      const msg = el('msg').value.trim();
+      if (!msg) return;
+      addBubble(msg, 'user');
+      el('msg').value = '';
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({session_id, message: msg})
+      });
+      if (!res.ok) throw new Error('Chat failed');
+      const data = await res.json();
+
+      addBubble(data.reply, 'assistant');
+      const badge = el('credits');
+      if (badge) badge.textContent = (data.credits ?? 0) + ' messages';
+    };
+
+    // ---------- END SESSION ----------
+    el('endBtn').onclick = async () => {
+      if (!session_id) return alert('No session yet.');
+      const res = await fetch('/api/end', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({session_id})
+      });
+      if (!res.ok) throw new Error('End failed');
+      const data = await res.json();
+      el('reflection').textContent = data.reflection || '(no reflection returned)';
+      alert('Session ended.');
+    };
+  </script>
+</body>
+</html>
+

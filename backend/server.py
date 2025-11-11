@@ -1,0 +1,609 @@
+# server.py
+
+import os
+import csv
+from typing import List
+from flask import Flask, request, jsonify, send_from_directory, abort
+try:
+    from flask_cors import CORS
+except ImportError:
+    # Fallback: no-op CORS so the app still runs if flask-cors isn't installed
+    def CORS(app, *args, **kwargs):
+        return app
+
+from llm_core import AstralinkCore
+import auth_store
+import conversation_store
+
+
+# -----------------------------------------------------------------------------
+# App setup
+# -----------------------------------------------------------------------------
+
+app = Flask(__name__)
+CORS(app)
+
+core = AstralinkCore()
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+
+def _get_session_id(container) -> str | None:
+    """Extract session id from any dict-like container."""
+    if not container:
+        return None
+    return container.get("session") or container.get("session_id")
+
+
+def _frontend_dir() -> str:
+    """Absolute path to the frontend folder."""
+    return os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+
+def _get_auth_token(extra: dict | None = None) -> str | None:
+    token = None
+    if extra:
+        token = extra.get("auth_token") or extra.get("token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+    if not token:
+        token = request.args.get("auth_token")
+    return token or None
+
+
+def _extract_session_id(payload: dict | None = None) -> str | None:
+    sid = None
+    if payload:
+        sid = payload.get("session") or payload.get("session_id")
+    if not sid:
+        sid = request.headers.get("X-Astralink-Session") or request.headers.get("X-Session-Id")
+    if not sid:
+        sid = request.args.get("session") or request.args.get("session_id")
+    if not sid:
+        sid = request.form.get("session") or request.form.get("session_id")
+    return sid
+
+
+def _ensure_session_id(sid: str | None) -> str:
+    if sid and sid in core.sessions:
+        return sid
+    new_sid, _ = core.new_session({})
+    return new_sid
+
+
+def _resolve_user_context(require_auth: bool = False) -> dict:
+    payload = request.get_json(silent=True)
+    token = _get_auth_token(payload if isinstance(payload, dict) else None)
+    email = auth_store.get_email_for_token(token) if token else None
+    sid = _extract_session_id(payload if isinstance(payload, dict) else None)
+
+    if email:
+        resolved_sid = _ensure_session_for_email(email)
+        return {
+            "user_key": email,
+            "email": email,
+            "session_id": resolved_sid,
+            "is_authenticated": True,
+        }
+
+    sid = _ensure_session_id(sid)
+    if require_auth:
+        resp = jsonify({"ok": False, "error": "not_authenticated"})
+        resp.status_code = 401
+        abort(resp)
+    return {
+        "user_key": f"guest:{sid}",
+        "email": None,
+        "session_id": sid,
+        "is_authenticated": False,
+    }
+
+
+def _require_user_email() -> str:
+    data = request.get_json(silent=True)
+    token = _get_auth_token(data if isinstance(data, dict) else None)
+    email = auth_store.get_email_for_token(token)
+    if not email:
+        session_id = None
+        if isinstance(data, dict):
+            session_id = data.get("session") or data.get("session_id")
+        if not session_id:
+            session_id = request.headers.get("X-Astralink-Session") or request.headers.get("X-Session-Id")
+        if not session_id:
+            session_id = (
+                request.args.get("session")
+                or request.args.get("session_id")
+                or request.form.get("session")
+                or request.form.get("session_id")
+            )
+        email = auth_store.get_email_for_session(session_id)
+    if not email:
+        resp = jsonify({"ok": False, "error": "not_authenticated"})
+        resp.status_code = 401
+        abort(resp)
+    return email
+
+
+def _ensure_session_for_email(email: str) -> str:
+    profile = auth_store.get_user_profile(email) or {}
+    sid = auth_store.get_user_session(email)
+    if not sid or sid not in core.sessions:
+        sid, _ = core.new_session(profile)
+    else:
+        if profile:
+            core.save_profile(sid, profile)
+    auth_store.set_user_session(email, sid)
+    return sid
+
+
+def _default_convo_title(email: str) -> str:
+    profile = auth_store.get_user_profile(email) or {}
+    loved_name = profile.get("name") or "them"
+    return f"Chat with {loved_name}".strip()
+
+
+def _resolve_session(container=None, data=None) -> tuple[str | None, str | None]:
+    token = _get_auth_token(data)
+    email = auth_store.get_email_for_token(token) if token else None
+    if email:
+        sid = auth_store.get_user_session(email)
+        if not sid or sid not in core.sessions:
+            sid, _ = core.new_session({})
+            auth_store.set_user_session(email, sid)
+        return sid, email
+    sid = _get_session_id(container) or _get_session_id(data or {}) or _get_session_id(request.args)
+    return sid, None
+
+
+def _rows_from_csv(text: str) -> List[str]:
+    rows = []
+    reader = csv.reader(text.splitlines())
+    for row in reader:
+        joined = " ".join(col.strip() for col in row if col and col.strip())
+        if not joined:
+            continue
+        if joined.lower() == "memory":
+            continue
+        rows.append(joined)
+    return rows
+
+
+def _memories_from_upload(file_storage) -> List[str]:
+    if not file_storage:
+        return []
+    try:
+        raw = file_storage.read()
+    except Exception:
+        return []
+    if not raw:
+        return []
+    text = raw.decode("utf-8", errors="ignore")
+    name = (file_storage.filename or "").lower()
+    if name.endswith(".csv"):
+        rows = _rows_from_csv(text)
+        if rows:
+            return rows
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+# -----------------------------------------------------------------------------
+# Frontend routes
+# -----------------------------------------------------------------------------
+
+@app.route("/")
+def serve_index():
+    """Serve the main frontend page."""
+    return send_from_directory(_frontend_dir(), "index.html")
+
+
+@app.route("/how")
+def serve_how():
+    return send_from_directory(_frontend_dir(), "how.html")
+
+
+@app.route("/interview")
+def serve_interview():
+    return send_from_directory(_frontend_dir(), "interview.html")
+
+
+@app.route("/chat")
+def serve_chat():
+    return send_from_directory(_frontend_dir(), "chat.html")
+
+
+@app.route("/pay")
+def serve_pay():
+    return send_from_directory(_frontend_dir(), "pay.html")
+
+
+@app.route("/auth.html")
+def serve_auth():
+    return send_from_directory(_frontend_dir(), "auth.html")
+
+
+@app.route("/<path:path>")
+def serve_static(path: str):
+    """
+    Serve other frontend assets.
+    Do NOT eat /api/* routes.
+    """
+    if path.startswith("api/"):
+        abort(404)
+    return send_from_directory(_frontend_dir(), path)
+
+
+# -----------------------------------------------------------------------------
+# API: auth
+# -----------------------------------------------------------------------------
+
+
+@app.route("/api/signup", methods=["POST"])
+def api_signup():
+    data = request.get_json() or {}
+    full_name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    ok, msg = auth_store.create_user(email, full_name, password)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+
+    sid, _ = core.new_session({})
+    auth_store.set_user_session(email, sid)
+    token = auth_store.create_token(email)
+    return jsonify({
+        "ok": True,
+        "auth_token": token,
+        "session_id": sid,
+        "profile": {},
+        "name": full_name,
+    })
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    if not auth_store.verify_credentials(email, password):
+        return jsonify({"ok": False, "error": "Invalid email or password."}), 400
+
+    profile = auth_store.get_user_profile(email)
+    sid = auth_store.get_user_session(email)
+    if not sid or sid not in core.sessions:
+        sid, _ = core.new_session(profile or {})
+    else:
+        if profile:
+            core.save_profile(sid, profile)
+    auth_store.set_user_session(email, sid)
+    token = auth_store.create_token(email)
+    return jsonify({
+        "ok": True,
+        "auth_token": token,
+        "session_id": sid,
+        "profile": profile,
+        "name": auth_store.get_user_display_name(email),
+    })
+
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    token = _get_auth_token(request.get_json(silent=True) or {})
+    if token:
+        auth_store.revoke_token(token)
+    return jsonify({"ok": True})
+
+
+# -----------------------------------------------------------------------------
+# API: profile & memories
+# -----------------------------------------------------------------------------
+
+@app.route("/api/save_profile", methods=["POST"])
+def api_save_profile():
+    data = request.get_json() or {}
+    sid, email = _resolve_session(data=data)
+    profile = data.get("profile", {}) or {}
+
+    # Create new session if none/invalid
+    if not sid or sid not in core.sessions:
+        sid, credits = core.new_session(profile)
+        created = True
+    else:
+        core.save_profile(sid, profile)
+        credits = core.sessions[sid]["credits"]
+        created = False
+
+        credits = core.sessions[sid]["credits"]
+        created = False
+
+    if email:
+        auth_store.set_user_session(email, sid)
+        auth_store.save_user_profile(email, profile)
+
+    return jsonify({
+        "ok": True,
+        "session": sid,
+        "session_id": sid,
+        "credits": credits,
+        "created": created,
+        "profile": profile,
+    })
+
+
+@app.route("/api/upload_memories", methods=["POST"])
+def api_upload_memories():
+    """
+    Accepts:
+      JSON: { session, text, source }
+      or form-data: text/note, [source], optional file(s)
+    """
+    if request.is_json:
+        data = request.get_json() or {}
+        sid, _ = _resolve_session(data=data)
+        text = (data.get("text") or data.get("note") or "").strip()
+        source = data.get("source")
+        files = []
+    else:
+        form = request.form
+        sid, _ = _resolve_session(container=form)
+        text = (form.get("text") or form.get("note") or "").strip()
+        source = form.get("source")
+        files = request.files.getlist("files") or []
+        if not files and "file" in request.files:
+            files = [request.files["file"]]
+
+    # Ensure we have a session
+    if not sid or sid not in core.sessions:
+        sid, _ = core.new_session({})
+
+    saved_labels: List[str] = []
+    saved_any = 0
+
+    if text:
+        core.add_text_memory(sid, text, source or "note")
+        core.add_memory_chunk(sid, text)
+        saved_labels.append("text")
+        saved_any += 1
+
+    for f in files:
+        items = _memories_from_upload(f)
+        if not items:
+            continue
+        filename = f.filename or "file"
+        for chunk in items:
+            core.add_text_memory(sid, chunk, source or filename)
+            core.add_memory_chunk(sid, chunk)
+            saved_any += 1
+        saved_labels.append(filename)
+
+    if saved_any == 0:
+        return jsonify({"ok": False, "error": "No text or files provided"}), 400
+
+    return jsonify({
+        "ok": True,
+        "session": sid,
+        "session_id": sid,
+        "saved": saved_labels,
+        "count": saved_any,
+    })
+
+
+# -----------------------------------------------------------------------------
+# API: chat
+# -----------------------------------------------------------------------------
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    data = request.get_json() or {}
+    sid, _ = _resolve_session(data=data)
+    message = (data.get("message") or "").strip()
+
+    if not message:
+        return jsonify({"ok": False, "error": "Empty message"}), 400
+
+    # Ensure session exists (allows cold-start chat)
+    if not sid or sid not in core.sessions:
+        sid, _ = core.new_session({})
+
+    ok, reply = core.chat(sid, message)
+
+    return jsonify({
+        "ok": ok,
+        "session": sid,
+        "session_id": sid,
+        "reply": reply,
+    })
+
+
+# -----------------------------------------------------------------------------
+# API: conversation threads
+# -----------------------------------------------------------------------------
+
+
+@app.route("/api/conversations", methods=["GET"])
+def api_list_conversations():
+    ctx = _resolve_user_context()
+    convos = conversation_store.list_conversations(ctx["user_key"])
+    return jsonify({"ok": True, "session_id": ctx["session_id"], "conversations": convos})
+
+
+@app.route("/api/conversations", methods=["POST"])
+def api_create_conversation():
+    ctx = _resolve_user_context()
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        title = _default_convo_title(ctx["email"] or "")
+    convo = conversation_store.create_conversation(ctx["user_key"], title)
+    return jsonify({"ok": True, "session_id": ctx["session_id"], "conversation": convo})
+
+
+@app.route("/api/conversations/<convo_id>", methods=["GET"])
+def api_get_conversation(convo_id: str):
+    ctx = _resolve_user_context()
+    convo = conversation_store.get_conversation(ctx["user_key"], convo_id)
+    if not convo:
+        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+    return jsonify({"ok": True, "session_id": ctx["session_id"], "conversation": convo})
+
+
+@app.route("/api/conversations/<convo_id>/message", methods=["POST"])
+def api_conversation_message(convo_id: str):
+    ctx = _resolve_user_context()
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "empty_message"}), 400
+
+    convo = conversation_store.get_conversation(ctx["user_key"], convo_id)
+    if not convo:
+        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+
+    history = (convo.get("messages") or [])[:]
+    if not conversation_store.append_message(ctx["user_key"], convo_id, "user", text):
+        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+
+    sid = ctx["session_id"]
+    if ctx["email"]:
+        sid = _ensure_session_for_email(ctx["email"])
+    try:
+        ok, reply = core.chat(sid, text, history_override=history)
+    except Exception:
+        return jsonify({"ok": False, "error": "server_error"}), 500
+
+    if not ok:
+        return jsonify({"ok": False, "error": "server_error"}), 500
+
+    if not conversation_store.append_message(ctx["user_key"], convo_id, "assistant", reply):
+        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+
+    updated = conversation_store.get_conversation(ctx["user_key"], convo_id) or convo
+    return jsonify({
+        "ok": True,
+        "reply": reply,
+        "session_id": sid,
+        "messages": updated.get("messages", []),
+        "conversation": {
+            "id": updated.get("id", convo_id),
+            "title": updated.get("title", convo.get("title")),
+            "updated_at": updated.get("updated_at"),
+            "created_at": updated.get("created_at"),
+            "message_count": updated.get("message_count", len(updated.get("messages", []))),
+        }
+    })
+
+
+@app.route("/api/conversations/<convo_id>/title", methods=["POST"])
+def api_conversation_rename(convo_id: str):
+    ctx = _resolve_user_context()
+    data = request.get_json() or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"ok": False, "error": "Title required"}), 400
+    ok = conversation_store.rename_conversation(ctx["user_key"], convo_id, title)
+    if not ok:
+        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+    convo = conversation_store.get_conversation(ctx["user_key"], convo_id)
+    return jsonify({"ok": True, "session_id": ctx["session_id"], "conversation": convo})
+
+
+@app.route("/api/conversations/stats", methods=["GET"])
+def api_conversation_stats():
+    ctx = _resolve_user_context()
+    stats = conversation_store.conversation_counts(ctx["user_key"])
+    stats["session_id"] = ctx["session_id"]
+    stats["ok"] = True
+    return jsonify(stats)
+
+
+# -----------------------------------------------------------------------------
+# API: interview flow
+# -----------------------------------------------------------------------------
+
+@app.route("/api/interview/start", methods=["POST"])
+def api_interview_start():
+    data = request.get_json() or {}
+    sid, _ = _resolve_session(data=data)
+
+    # Ensure session
+    if not sid or sid not in core.sessions:
+        sid, _ = core.new_session({})
+
+    ok, first_q = core.start_interview(sid)
+
+    if not ok:
+        return jsonify({
+            "ok": False,
+            "session": sid,
+            "session_id": sid,
+            "error": "Interview start failed",
+        }), 400
+
+    return jsonify({
+        "ok": True,
+        "session": sid,
+        "session_id": sid,
+        "question": first_q,
+    })
+
+
+@app.route("/api/interview/answer", methods=["POST"])
+def api_interview_answer():
+    data = request.get_json() or {}
+    sid, _ = _resolve_session(data=data)
+    answer = (data.get("answer") or "").strip()
+
+    if not sid or sid not in core.interviews:
+        return jsonify({"ok": False, "error": "Invalid session"}), 400
+    if not answer:
+        return jsonify({"ok": False, "error": "Empty answer"}), 400
+
+    ok, next_q_or_summary = core.answer_interview(sid, answer)
+    if not ok:
+        return jsonify({"ok": False, "error": next_q_or_summary}), 400
+
+    # When interview is done, core.answer_interview returns the final summary.
+    payload = {"ok": True, "session": sid, "session_id": sid}
+    finished = sid not in core.interviews
+    if finished:
+        payload["done"] = True
+        payload["summary"] = next_q_or_summary
+    else:
+        payload["done"] = False
+        payload["next_question"] = next_q_or_summary
+
+    return jsonify(payload)
+
+
+# -----------------------------------------------------------------------------
+# API: list memories (debug / helper)
+# -----------------------------------------------------------------------------
+
+@app.route("/api/list_memories", methods=["GET"])
+def api_list_memories():
+    sid, _ = _resolve_session(container=request.args)
+
+    if not sid or sid not in core.sessions:
+        return jsonify({"ok": True, "session": None, "memories": []})
+
+    mems = core.list_memories(sid)
+
+    return jsonify({
+        "ok": True,
+        "session": sid,
+        "session_id": sid,
+        "memories": mems,
+    })
+
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    # Use the same port your frontend expects (17680)
+    app.run(host="127.0.0.1", port=17680, debug=True)

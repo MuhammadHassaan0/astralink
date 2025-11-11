@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AstraLink - Keep Their Memory Alive</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Spectral:wght@500;600&display=swap" rel="stylesheet" />
+  <script src="/app.js" defer></script>
+  <style>
+    body, html {
+      font-family: 'Inter', sans-serif;
+      background-color: #0A0E27;
+    }
+    .celestial-bg {
+      background: linear-gradient(160deg, #0A0E27 0%, #0A0E27 50%, black 100%);
+      position: relative;
+      overflow: hidden;
+      animation: gradient-shift 15s ease infinite alternate;
+    }
+    @keyframes gradient-shift {
+      0% { background: linear-gradient(160deg, #0A0E27 0%, #0A0E27 50%, black 100%); }
+      100% { background: linear-gradient(160deg, #0f1131 0%, #0c0a27 50%, #0c0c14 100%); }
+    }
+    .star {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      background-color: white;
+      border-radius: 50%;
+      opacity: 0.85;
+      animation:
+        twinkle var(--twinkle-duration, 3s) infinite ease-in-out,
+        drift var(--drift-duration, 11s) infinite ease-in-out alternate,
+        shimmer 4s infinite ease-in-out;
+      filter: drop-shadow(0 0 7px rgba(255,255,255,0.55));
+    }
+    .star.star-sm { width: 1px; height: 1px; }
+    .star.star-md { width: 2px; height: 2px; }
+    .star.star-lg { width: 3px; height: 3px; }
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+    @keyframes drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(var(--float-x, 30px), var(--float-y, -36px)) scale(1.08); }
+    }
+    @keyframes shimmer {
+      0% { filter: drop-shadow(0 0 5px rgba(255,255,255,0.25)); }
+      35% { filter: drop-shadow(0 0 14px rgba(255,255,255,0.55)); }
+      65% { filter: drop-shadow(0 0 30px rgba(255,255,255,0.95)); }
+      100% { filter: drop-shadow(0 0 5px rgba(255,255,255,0.25)); }
+    }
+    .star-spark {
+      animation:
+        twinkle var(--twinkle-duration, 2.4s) infinite ease-in-out,
+        drift var(--drift-duration, 9s) infinite ease-in-out alternate,
+        shimmer 3s infinite ease-in-out,
+        pulseTrail 6s infinite ease-in-out;
+      filter: drop-shadow(0 0 12px rgba(255,255,255,0.85));
+    }
+    @keyframes pulseTrail {
+      0%, 100% { transform: translate(0, 0) scale(0.95); box-shadow: 0 0 0 rgba(255,255,255,0); }
+      30% { transform: translate(var(--float-x, 28px), var(--float-y, -22px)) scale(1.25); box-shadow: 0 0 36px rgba(255,255,255,0.55); }
+      55% { transform: translate(calc(var(--float-x, 28px) * 1.4), calc(var(--float-y, -22px) * 1.4)) scale(0.9); box-shadow: 0 0 48px rgba(255,255,255,0.85); }
+    }
+    .aurora {
+      position: absolute;
+      opacity: 0.15;
+      filter: blur(100px);
+      border-radius: 9999px;
+      animation: shift 15s infinite ease-in-out alternate;
+      transition: transform 0.3s ease;
+    }
+    .aurora-1 {
+      width: 500px;
+      height: 500px;
+      background-color: #8B7FD6;
+      top: -150px;
+      left: -200px;
+      animation-duration: 15s;
+    }
+    .aurora-2 {
+      width: 600px;
+      height: 600px;
+      background-color: #6EACDA;
+      bottom: -200px;
+      right: -250px;
+      animation-duration: 20s;
+    }
+    @keyframes shift {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      100% { transform: translate(100px, 50px) rotate(20deg); }
+    }
+    .fade-in {
+      animation: fadeIn 0.3s ease forwards;
+      opacity: 0;
+    }
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+    .brand-mark {
+      font-family: 'Spectral', serif;
+      letter-spacing: 0.04em;
+      font-size: 1.35rem;
+    }
+    .hero-title {
+      font-family: 'Spectral', serif;
+      font-weight: 600;
+      letter-spacing: 0.015em;
+    }
+    .glow-button {
+      background-image: linear-gradient(to right, #8B7FD6, #6EACDA, #8B7FD6);
+      background-size: 200% auto;
+      transition: all 0.3s ease;
+      animation: pulse 2.5s infinite ease-in-out;
+    }
+    .glow-button:hover {
+      background-position: right center;
+      transform: translateY(-2px);
+      box-shadow: 0 0 25px rgba(139, 127, 214, 0.6);
+      animation-play-state: paused;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 8px rgba(139, 127, 214, 0.2); }
+      50% { box-shadow: 0 0 20px rgba(139, 127, 214, 0.5); }
+      100% { box-shadow: 0 0 8px rgba(139, 127, 214, 0.2); }
+    }
+  </style>
+</head>
+<body class="font-sans">
+<div class="relative flex h-screen min-h-[700px] w-full flex-col group/design-root overflow-hidden celestial-bg text-[#F5F5F5]">
+  <div class="absolute inset-0" id="starfield"></div>
+  <script>
+    const starfield = document.getElementById('starfield');
+    if (starfield) {
+      const numStars = 320;
+      for (let i = 0; i < numStars; i++) {
+        const star = document.createElement('div');
+        const sizeClass = Math.random() > 0.95 ? 'star-lg' : (Math.random() > 0.8 ? 'star-md' : 'star-sm');
+        star.className = `star ${sizeClass}`;
+        star.style.top = `${Math.random() * 100}%`;
+        star.style.left = `${Math.random() * 100}%`;
+        star.style.setProperty('--float-x', `${(Math.random() * 80 - 40).toFixed(1)}px`);
+        star.style.setProperty('--float-y', `${(Math.random() * 70 - 35).toFixed(1)}px`);
+        star.style.setProperty('--twinkle-duration', `${1.5 + Math.random() * 3}s`);
+        star.style.setProperty('--drift-duration', `${6 + Math.random() * 9}s`);
+        star.style.animationDelay = `${Math.random() * 4}s`;
+        if (Math.random() > 0.65) {
+          star.classList.add('star-spark');
+          star.style.animationDelay = `${Math.random() * 2}s`;
+        }
+        starfield.appendChild(star);
+      }
+    }
+  </script>
+  <div class="aurora aurora-1"></div>
+  <div class="aurora aurora-2"></div>
+  <div class="relative flex h-full grow flex-col z-10 px-4 sm:px-6 lg:px-8">
+    <header class="flex flex-col gap-3 py-6" data-animate>
+      <div class="flex items-center justify-between">
+        <div class="brand-mark">AstraLink</div>
+        <nav class="hidden sm:flex gap-6 text-[#B0B0B0] text-sm">
+          <a href="/" class="hover:text-white">Home</a>
+          <a href="/how" class="hover:text-white">How it works</a>
+          <a href="/interview" class="hover:text-white">Build</a>
+          <a href="/chat" class="hover:text-white">Chat</a>
+        </nav>
+        <div class="flex items-center gap-3">
+          <a href="/auth.html" class="text-sm text-white/80 hover:text-white">Log in</a>
+          <a href="/auth.html" class="text-sm font-semibold tracking-wide border border-white/30 rounded-full px-5 py-2 hover:bg-white/10">Join now</a>
+        </div>
+      </div>
+      <div class="mx-auto w-full max-w-3xl text-center">
+        <p class="text-xs text-white/55">
+          You’re using an early version of Astralink. It won’t be perfect, but it will be honest, private, and built with you.
+        </p>
+      </div>
+    </header>
+    <main class="flex flex-1 flex-col items-center justify-center text-center" data-animate data-animate-delay="120ms">
+      <div class="flex flex-col gap-8 items-center justify-center w-full max-w-4xl">
+        <div class="flex flex-col gap-4 text-center">
+          <h1 class="hero-title text-4xl sm:text-6xl leading-tight tracking-tight text-[#F5F5F5] fade-in" style="animation-delay: 0.1s;">
+            Keep Their Memory Alive
+          </h1>
+          <p class="text-xl sm:text-2xl font-normal leading-normal text-[#B0B0B0] max-w-2xl mx-auto fade-in" style="animation-delay: 0.3s;">
+            Talk to them again. Share your days. Feel their presence.
+          </p>
+        </div>
+        <div class="flex flex-col items-center gap-3">
+          <a href="/auth.html" class="flex min-w-[84px] max-w-[320px] cursor-pointer items-center justify-center overflow-hidden rounded-[12px] h-auto py-4 px-10 text-white text-base font-bold leading-normal tracking-wide glow-button fade-in" style="animation-delay: 0.5s;">
+            <span class="truncate">Begin Your Journey</span>
+          </a>
+          <p class="text-xs font-normal leading-normal text-[#B0B0B0] fade-in" style="animation-delay: 0.7s;">Private. Secure. Built with love.</p>
+        </div>
+      </div>
+    </main>
+    <footer class="flex justify-center pb-10 fade-in" style="animation-delay: 0.9s;" data-animate data-animate-delay="240ms">
+      <a href="/how" class="text-sm font-normal leading-normal text-center text-[#B0B0B0] hover:text-white">See how it works ↓</a>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

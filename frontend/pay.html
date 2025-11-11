@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>AstraLink - Payment</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com" rel="preconnect"/>
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+  <script src="/app.js" defer></script>
+  <style type="text/tailwindcss">
+    @layer base {
+      body {
+        @apply bg-[#15141E] text-white font-sans;
+      }
+    }
+    @layer utilities {
+      .glassmorphism {
+        @apply bg-white/5 border border-white/10 backdrop-blur-lg;
+      }
+      .glow-border {
+        box-shadow: 0 0 15px 1px rgba(139, 127, 214, 0.3), 0 0 25px 2px rgba(110, 172, 218, 0.2);
+      }
+      .input-glow-focus:focus-within {
+        box-shadow: 0 0 15px 1px rgba(139, 127, 214, 0.4);
+      }
+      .cta-pulse {
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% {
+          box-shadow: 0 0 20px rgba(139, 127, 214, 0.4), 0 0 10px rgba(110, 172, 218, 0.2);
+        }
+        50% {
+          box-shadow: 0 0 30px rgba(139, 127, 214, 0.7), 0 0 15px rgba(110, 172, 218, 0.4);
+        }
+      }
+    }
+  </style>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#8B7FD6",
+            accent: "#6EACDA",
+            "background-dark": "#15141E",
+            "space-navy": "#0A0E27",
+            "text-primary": "#F5F5F5",
+            "text-secondary": "#B0B0B0",
+          },
+          fontFamily: {
+            sans: ["Inter", "sans-serif"],
+          },
+          borderRadius: {
+            xl: "1rem",
+            "2xl": "1.5rem",
+          },
+        },
+      },
+    }
+  </script>
+</head>
+<body class="bg-background-dark font-sans">
+  <div class="relative min-h-screen w-full overflow-hidden">
+    <div class="absolute inset-0 z-0">
+      <div class="absolute inset-0 bg-space-navy"></div>
+      <div class="absolute bottom-0 left-[-20%] right-[-20%] top-[-10%] h-[500px] w-[500px] rounded-full bg-gradient-to-br from-primary/30 to-accent/20 blur-3xl"></div>
+      <div class="absolute bottom-[20%] right-[-15%] h-[400px] w-[400px] rounded-full bg-gradient-to-br from-primary/20 to-accent/10 blur-3xl"></div>
+    </div>
+    <div class="relative z-10 flex flex-col min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <header class="flex w-full max-w-7xl mx-auto items-center justify-between" data-animate>
+        <div class="flex items-center gap-3">
+          <svg class="h-8 w-8 text-text-primary" fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <path clip-rule="evenodd" d="M39.475 21.6262C40.358 21.4363 40.6863 21.5589 40.7581 21.5934C40.7876 21.655 40.8547 21.857 40.8082 22.3336C40.7408 23.0255 40.4502 24.0046 39.8572 25.2301C38.6799 27.6631 36.5085 30.6631 33.5858 33.5858C30.6631 36.5085 27.6632 38.6799 25.2301 39.8572C24.0046 40.4502 23.0255 40.7407 22.3336 40.8082C21.8571 40.8547 21.6551 40.7875 21.5934 40.7581C21.5589 40.6863 21.4363 40.358 21.6262 39.475C21.8562 38.4054 22.4689 36.9657 23.5038 35.2817C24.7575 33.2417 26.5497 30.9744 28.7621 28.762C30.9744 26.5497 33.2417 24.7574 35.2817 23.5037C36.9657 22.4689 38.4054 21.8562 39.475 21.6262ZM4.41189 29.2403L18.7597 43.5881C19.8813 44.7097 21.4027 44.9179 22.7217 44.7893C24.0585 44.659 25.5148 44.1631 26.9723 43.4579C29.9052 42.0387 33.2618 39.5667 36.4142 36.4142C39.5667 33.2618 42.0387 29.9052 43.4579 26.9723C44.1631 25.5148 44.659 24.0585 44.7893 22.7217C44.9179 21.4027 44.7097 19.8813 43.5881 18.7597L29.2403 4.41187C27.8527 3.02428 25.8765 3.02573 24.2861 3.36776C22.6081 3.72863 20.7334 4.58419 18.8396 5.74801C16.4978 7.18716 13.9881 9.18353 11.5858 11.5858C9.18354 13.988 7.18717 16.4978 5.74802 18.8396C4.58421 20.7334 3.72865 22.6081 3.36778 24.2861C3.02574 25.8765 3.02429 27.8527 4.41189 29.2403Z" fill-rule="evenodd"></path>
+          </svg>
+          <h2 class="text-xl font-bold text-text-primary">AstraLink</h2>
+        </div>
+        <div class="text-sm font-medium text-text-secondary">Step 4 of 4</div>
+      </header>
+      <main class="flex-grow flex items-center justify-center my-10">
+        <div class="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+          <div class="flex flex-col gap-8 order-2 lg:order-1" data-animate data-animate-delay="120ms">
+            <div class="p-8 rounded-2xl glassmorphism glow-border">
+              <h1 id="offerTitle" class="text-3xl md:text-4xl font-bold text-text-primary">Bring them to life - $5</h1>
+              <p class="text-text-secondary mt-2 text-lg">One-time payment. Yours forever.</p>
+              <div class="w-full h-px bg-white/10 my-6"></div>
+              <ul class="space-y-4 text-text-primary">
+                <li class="flex items-center gap-3">
+                  <span class="material-symbols-outlined text-accent">verified_user</span>
+                  Lifetime access
+                </li>
+                <li class="flex items-center gap-3">
+                  <span class="material-symbols-outlined text-accent">forum</span>
+                  Unlimited conversations
+                </li>
+                <li class="flex items-center gap-3">
+                  <span class="material-symbols-outlined text-accent">lock</span>
+                  Private & secure forever
+                </li>
+              </ul>
+            </div>
+            <div class="text-center text-text-secondary text-sm">
+              <p class="font-semibold">Your satisfaction guaranteed.</p>
+              <p>Not what you expected? Full refund, no questions.</p>
+            </div>
+          </div>
+          <div class="order-1 lg:order-2" data-animate data-animate-delay="200ms">
+            <div class="p-8 rounded-2xl glassmorphism">
+              <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-semibold text-text-primary">Payment Details</h2>
+                <div class="flex items-center gap-2 text-sm text-text-secondary">
+                  <span class="material-symbols-outlined text-base">lock</span>
+                  <span>Encrypted & Secure</span>
+                </div>
+              </div>
+              <form class="space-y-5">
+                <div>
+                  <label class="text-sm font-medium text-text-secondary" for="email">Email Address</label>
+                  <div class="mt-1.5 bg-black/20 rounded-lg border border-white/10 transition-shadow duration-300 input-glow-focus">
+                    <input class="w-full bg-transparent border-0 text-text-primary placeholder:text-text-secondary/50 focus:ring-0" id="email" placeholder="you@example.com" type="email"/>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-sm font-medium text-text-secondary" for="card-details">Card Details</label>
+                  <div class="mt-1.5 grid grid-cols-1 gap-px bg-white/10 rounded-lg overflow-hidden border border-white/10 transition-shadow duration-300 input-glow-focus">
+                    <input class="w-full bg-black/20 border-0 text-text-primary placeholder:text-text-secondary/50 focus:ring-0 rounded-t-lg" id="card-details" placeholder="Card Number" type="text"/>
+                    <div class="grid grid-cols-2 gap-px">
+                      <input class="w-full bg-black/20 border-0 text-text-primary placeholder:text-text-secondary/50 focus:ring-0 rounded-bl-lg" placeholder="MM / YY" type="text"/>
+                      <input class="w-full bg-black/20 border-0 text-text-primary placeholder:text-text-secondary/50 focus:ring-0 rounded-br-lg" placeholder="CVC" type="text"/>
+                    </div>
+                  </div>
+                </div>
+                <button class="w-full flex justify-center items-center py-4 px-6 bg-primary text-white font-bold text-lg rounded-xl hover:bg-gradient-to-r from-primary to-accent transition-all duration-300 cta-pulse" type="button">
+                  Complete Payment - $5
+                </button>
+              </form>
+              <div class="mt-6 text-center text-xs text-text-secondary/70">
+                <p>We never store your card info. All payments are securely processed.</p>
+                <div class="flex justify-center items-center gap-4 mt-3 opacity-60">
+                  <span>VISA</span>
+                  <span>Mastercard</span>
+                  <span>Amex</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const profile = Astralink.getProfile();
+      if (profile?.name) {
+        document.getElementById("offerTitle").textContent = `Bring ${profile.name} to life - $5`;
+      }
+    });
+  </script>
+</body>
+</html>

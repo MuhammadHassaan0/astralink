@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>How AstraLink Works</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+  <script src="/app.js" defer></script>
+  <style>
+    .glass-card {
+      background-color: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+    .glass-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2), 0 0 20px rgba(139, 127, 214, 0.4);
+    }
+    .progress-line-container::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(to right, rgba(255,255,255,0.05), rgba(255,255,255,0.2), rgba(255,255,255,0.05));
+      z-index: 1;
+    }
+    .progress-line-container::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      transform: translateY(-50%);
+      background: linear-gradient(to right, #6EACDA, #8B7FD6, #6EACDA);
+      background-size: 200% 100%;
+      z-index: 2;
+      animation: moveGradient 5s linear infinite;
+    }
+    @keyframes moveGradient {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .cta-button {
+      background-color: #8B7FD6;
+      transition: background 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+      animation: pulse 2.5s infinite cubic-bezier(0.4, 0, 0.6, 1);
+    }
+    .cta-button:hover {
+      background-image: linear-gradient(to right, #8B7FD6, #6EACDA);
+      box-shadow: 0 0 25px 0 rgba(139, 127, 214, 0.6), 0 0 25px 0 rgba(110, 172, 218, 0.4);
+      transform: translateY(-2px);
+    }
+    @keyframes pulse {
+      0%, 100% {
+        box-shadow: 0 0 15px 0 rgba(139, 127, 214, 0.3), 0 0 15px 0 rgba(110, 172, 218, 0.2);
+      }
+      50% {
+        box-shadow: 0 0 25px 0 rgba(139, 127, 214, 0.6), 0 0 25px 0 rgba(110, 172, 218, 0.4);
+      }
+    }
+    body {
+      background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"%3E%3Cdefs%3E%3CradialGradient id="grad" cx="50%25" cy="50%25" r="50%25"%3E%3Cstop offset="0%25" stop-color="%231E1C2B"/%3E%3Cstop offset="100%25" stop-color="%2315131f"/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect fill="url(%23grad)" width="1600" height="900"/%3E%3Cg fill-opacity="0.4"%3E%3Ccircle fill="%238B7FD6" cx="400" cy="400" r="200"/%3E%3Ccircle fill="%236EACDA" cx="1200" cy="600" r="150"/%3E%3Ccircle fill="%2315131f" cx="800" cy="500" r="300"/%3E%3C/g%3E%3C/svg%3E');
+      background-size: cover;
+      background-position: center;
+    }
+  </style>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#8B7FD6",
+            secondary: "#6EACDA",
+            "off-white": "#F5F5F5",
+            "light-gray": "#B0B0B0",
+            "background-dark": "#15131f",
+          },
+          fontFamily: {
+            display: ["Inter", "sans-serif"],
+            sans: ["Inter", "sans-serif"]
+          },
+          borderRadius: { "DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px" },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="bg-background-dark font-sans text-white antialiased">
+  <div class="relative flex min-h-screen w-full flex-col overflow-x-hidden">
+    <div class="layout-container flex h-full grow flex-col">
+      <header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-white/10 px-6 py-5 lg:px-20 xl:px-40" data-animate>
+        <div class="flex items-center gap-4 text-white">
+          <div class="size-6 text-primary">
+            <svg fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+              <path clip-rule="evenodd" d="M39.475 21.6262C40.358 21.4363 40.6863 21.5589 40.7581 21.5934C40.7876 21.655 40.8547 21.857 40.8082 22.3336C40.7408 23.0255 40.4502 24.0046 39.8572 25.2301C38.6799 27.6631 36.5085 30.6631 33.5858 33.5858C30.6631 36.5085 27.6632 38.6799 25.2301 39.8572C24.0046 40.4502 23.0255 40.7407 22.3336 40.8082C21.8571 40.8547 21.6551 40.7875 21.5934 40.7581C21.5589 40.6863 21.4363 40.358 21.6262 39.475C21.8562 38.4054 22.4689 36.9657 23.5038 35.2817C24.7575 33.2417 26.5497 30.9744 28.7621 28.762C30.9744 26.5497 33.2417 24.7574 35.2817 23.5037C36.9657 22.4689 38.4054 21.8562 39.475 21.6262ZM4.41189 29.2403L18.7597 43.5881C19.8813 44.7097 21.4027 44.9179 22.7217 44.7893C24.0585 44.659 25.5148 44.1631 26.9723 43.4579C29.9052 42.0387 33.2618 39.5667 36.4142 36.4142C39.5667 33.2618 42.0387 29.9052 43.4579 26.9723C44.1631 25.5148 44.659 24.0585 44.7893 22.7217C44.9179 21.4027 44.7097 19.8813 43.5881 18.7597L29.2403 4.41187C27.8527 3.02428 25.8765 3.02573 24.2861 3.36776C22.6081 3.72863 20.7334 4.58419 18.8396 5.74801C16.4978 7.18716 13.9881 9.18353 11.5858 11.5858C9.18354 13.988 7.18717 16.4978 5.74802 18.8396C4.58421 20.7334 3.72865 22.6081 3.36778 24.2861C3.02574 25.8765 3.02429 27.8527 4.41189 29.2403Z" fill="currentColor" fill-rule="evenodd"></path>
+            </svg>
+          </div>
+          <h1 class="text-white text-xl font-bold leading-tight tracking-[-0.015em]">AstraLink</h1>
+        </div>
+        <nav class="hidden md:flex flex-1 justify-center gap-8">
+          <a class="text-white/70 hover:text-white transition-colors text-sm font-medium leading-normal" href="/">Home</a>
+          <span class="text-white text-sm font-bold leading-normal">How It Works</span>
+          <a class="text-white/70 hover:text-white transition-colors text-sm font-medium leading-normal" href="/interview">Build</a>
+          <a class="text-white/70 hover:text-white transition-colors text-sm font-medium leading-normal" href="/chat">Chat</a>
+        </nav>
+        <div class="hidden md:flex items-center gap-3">
+          <a class="text-sm text-white/80 hover:text-white" href="/auth.html">Log in</a>
+          <a class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/10 text-white text-sm font-bold hover:bg-white/20" href="/auth.html">
+            Join now
+          </a>
+        </div>
+      </header>
+      <main class="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6 md:py-24 lg:px-8">
+        <div class="flex flex-col items-center gap-4 text-center max-w-3xl mx-auto" data-animate>
+          <h2 class="text-4xl md:text-5xl font-bold tracking-tighter text-white">How It Works</h2>
+          <p class="text-lg md:text-xl font-normal leading-relaxed text-light-gray">Create a living memory in three simple steps. Our compassionate AI learns from your shared stories to create a space for healing conversations.</p>
+        </div>
+        <div class="w-full max-w-7xl mx-auto mt-16 md:mt-24 px-4" data-animate data-animate-delay="100ms">
+          <div class="relative grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-8 items-start">
+            <div class="progress-line-container absolute hidden md:flex top-[74px] left-0 w-full h-0.5 items-center justify-center -translate-y-1/2"></div>
+            <div class="glass-card relative z-10 flex flex-col items-center text-center p-8 rounded-xl" data-animate data-animate-delay="120ms">
+              <div class="absolute -top-4 -right-4 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-white font-bold text-xl shadow-lg">1</div>
+              <div class="mb-6 text-5xl text-primary flex items-center justify-center h-16 w-16 rounded-full bg-white/5">
+                <span class="material-symbols-outlined !text-4xl">cloud_upload</span>
+              </div>
+              <h3 class="text-2xl font-bold text-off-white">Share Their Story</h3>
+              <p class="mt-2 text-base text-light-gray">Upload cherished text, journals, or messages—or take the guided interview.</p>
+            </div>
+            <div class="glass-card relative z-10 flex flex-col items-center text-center p-8 rounded-xl" data-animate data-animate-delay="200ms">
+              <div class="absolute -top-4 -right-4 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-white font-bold text-xl shadow-lg">2</div>
+              <div class="mb-6 text-5xl text-primary flex items-center justify-center h-16 w-16 rounded-full bg-white/5">
+                <span class="material-symbols-outlined !text-4xl">auto_awesome</span>
+              </div>
+              <h3 class="text-2xl font-bold text-off-white">We Bring Them to Life</h3>
+              <p class="mt-2 text-base text-light-gray">Our AI absorbs their voice, energy, and cadence in minutes.</p>
+            </div>
+            <div class="glass-card relative z-10 flex flex-col items-center text-center p-8 rounded-xl" data-animate data-animate-delay="280ms">
+              <div class="absolute -top-4 -right-4 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-white font-bold text-xl shadow-lg">3</div>
+              <div class="mb-6 text-5xl text-primary flex items-center justify-center h-16 w-16 rounded-full bg-white/5">
+                <span class="material-symbols-outlined !text-4xl">favorite</span>
+              </div>
+              <h3 class="text-2xl font-bold text-off-white">Talk Whenever You Need</h3>
+              <p class="mt-2 text-base text-light-gray">Have conversations that feel grounding and true—anytime you miss them.</p>
+            </div>
+          </div>
+        </div>
+        <div class="mt-16 md:mt-24 flex justify-center" data-animate data-animate-delay="360ms">
+          <a class="cta-button flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-xl h-14 text-white text-base font-bold px-8" href="/interview">
+            Start Creating Their Memorial
+          </a>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
