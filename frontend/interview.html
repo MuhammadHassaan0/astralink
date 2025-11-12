@@ -65,15 +65,15 @@
 <body>
   <div class="min-h-screen flex flex-col">
     <header class="flex items-center justify-between px-6 py-4 md:px-10 text-text-secondary" data-animate>
-      <a href="/" class="text-lg font-bold tracking-tight text-text-primary">AstraLink</a>
+      <a href="/beta" class="text-lg font-bold tracking-tight text-text-primary">AstraLink</a>
       <nav class="hidden md:flex gap-6 text-sm">
-        <a href="/" class="hover:text-white">Home</a>
-        <a href="/how" class="hover:text-white">How it works</a>
+        <a href="/beta" class="hover:text-white">Home</a>
+        <a href="/beta/how" class="hover:text-white">How it works</a>
         <span class="text-white font-semibold">Build</span>
-        <a href="/chat" class="hover:text-white">Chat</a>
+        <a href="/beta/chat" class="hover:text-white">Chat</a>
       </nav>
       <div class="flex items-center gap-3">
-        <a href="/chat" class="text-sm font-semibold text-white/90 border border-white/30 rounded-full px-4 py-1.5 hover:bg-white/10">Go to chat</a>
+        <a href="/beta/chat" class="text-sm font-semibold text-white/90 border border-white/30 rounded-full px-4 py-1.5 hover:bg-white/10">Go to chat</a>
         <button id="logoutBtn" class="text-sm text-white/70 hover:text-white">Log out</button>
       </div>
     </header>
@@ -169,6 +169,13 @@
           <div class="space-y-4">
             <p id="interviewQuestion" class="text-lg font-semibold text-text-primary">Press “Start interview” to get the first question.</p>
             <textarea id="interviewAnswer" rows="4" class="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-text-primary placeholder:text-text-secondary/50" placeholder="Type your answer..." disabled></textarea>
+            <div class="mt-3 flex flex-wrap items-center gap-3">
+              <button id="voiceToggleBtn" type="button" class="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-text-primary transition hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                <span class="material-symbols-outlined text-base" aria-hidden="true">mic</span>
+                <span class="voice-toggle-label">Start voice</span>
+              </button>
+              <span id="voiceStatus" class="text-xs text-text-secondary">Microphone gets enabled once the interview starts.</span>
+            </div>
             <div class="flex flex-wrap gap-3">
               <button id="startInterviewBtn" class="rounded-2xl px-5 py-2.5 bg-primary text-white font-semibold hover:bg-primary/80 transition shadow-glow-purple">Start interview</button>
               <button id="submitAnswerBtn" class="rounded-2xl px-5 py-2.5 bg-white/10 text-white font-semibold disabled:opacity-40 hover:bg-white/20 transition" disabled>Submit answer</button>
@@ -218,11 +225,16 @@
       const chatCTA = document.getElementById("chatCTA");
       const ctaChatBtn = document.getElementById("ctaChatBtn");
       const logoutBtn = document.getElementById("logoutBtn");
+      const voiceToggleBtn = document.getElementById("voiceToggleBtn");
+      const voiceStatus = document.getElementById("voiceStatus");
 
       let interviewing = false;
       let profileComplete = !!Astralink.getSessionId();
       let uploadComplete = false;
       let interviewComplete = false;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      let recognition = null;
+      let voiceListening = false;
 
       function updateSessionBadge() {
         const sid = Astralink.getSessionId();
@@ -350,6 +362,7 @@
         interviewAnswer.focus();
         submitAnswerBtn.disabled = false;
         interviewing = true;
+        setVoiceControlsEnabled(true);
       }
 
       async function startInterview() {
@@ -410,6 +423,7 @@
             interviewing = false;
             interviewComplete = true;
             updateCTA();
+            setVoiceControlsEnabled(false);
           } else if (data.next_question) {
             setInterviewQuestion(data.next_question);
             interviewStatus.textContent = "";
@@ -427,16 +441,134 @@
         interviewAnswer.disabled = true;
         submitAnswerBtn.disabled = true;
         interviewStatus.textContent = "Interview paused.";
+        setVoiceControlsEnabled(false);
+      }
+
+      function updateVoiceStatus(message) {
+        if (voiceStatus) {
+          voiceStatus.textContent = message;
+        }
+      }
+
+      function updateVoiceButton(listening) {
+        if (!voiceToggleBtn) return;
+        const label = voiceToggleBtn.querySelector(".voice-toggle-label");
+        if (label) {
+          label.textContent = listening ? "Listening…" : "Start voice";
+        }
+        voiceToggleBtn.classList.toggle("bg-primary", listening);
+        voiceToggleBtn.classList.toggle("text-white", listening);
+        voiceToggleBtn.classList.toggle("border-primary", listening);
+      }
+
+      function setVoiceControlsEnabled(enabled) {
+        if (!voiceToggleBtn) return;
+        const available = Boolean(SpeechRecognition) && enabled;
+        voiceToggleBtn.disabled = !available;
+        voiceToggleBtn.classList.toggle("opacity-50", !available);
+        if (!available && voiceListening && recognition) {
+          voiceListening = false;
+          try {
+            recognition.stop();
+          } catch (err) {
+            console.warn("voice stop error", err);
+          }
+          updateVoiceButton(false);
+        }
+        if (!SpeechRecognition) {
+          updateVoiceStatus("Voice capture is not supported in this browser.");
+        } else if (!enabled) {
+          updateVoiceStatus("Start the interview to enable the microphone.");
+        } else {
+          updateVoiceStatus("Tap the mic to speak your answer.");
+        }
+      }
+
+      function appendTranscript(text) {
+        const clean = (text || "").trim();
+        if (!clean) return;
+        const current = interviewAnswer.value;
+        const spacer = current && !current.endsWith(" ") ? " " : "";
+        interviewAnswer.value = `${current}${spacer}${clean}`.trimStart();
+      }
+
+      function toggleVoiceRecording() {
+        if (!SpeechRecognition || !recognition || voiceToggleBtn.disabled) return;
+        if (voiceListening) {
+          voiceListening = false;
+          recognition.stop();
+          updateVoiceButton(false);
+          updateVoiceStatus("Voice paused. Tap to resume.");
+          return;
+        }
+        try {
+          recognition.start();
+          voiceListening = true;
+          updateVoiceButton(true);
+          updateVoiceStatus("Listening… speak freely.");
+        } catch (err) {
+          console.warn("voice start error", err);
+          updateVoiceStatus("Could not access microphone. Check permissions.");
+        }
+      }
+
+      function initVoiceControls() {
+        if (!voiceToggleBtn) return;
+        if (!SpeechRecognition) {
+          setVoiceControlsEnabled(false);
+          return;
+        }
+        recognition = new SpeechRecognition();
+        recognition.lang = navigator.language || "en-US";
+        recognition.interimResults = true;
+        recognition.continuous = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.addEventListener("result", (event) => {
+          let finalTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            if (result.isFinal) {
+              finalTranscript += result[0].transcript || "";
+            }
+          }
+          if (finalTranscript) {
+            appendTranscript(finalTranscript);
+          }
+        });
+
+        recognition.addEventListener("error", (event) => {
+          console.warn("voice error", event.error);
+          voiceListening = false;
+          updateVoiceButton(false);
+          updateVoiceStatus(event.error === "not-allowed" ? "Microphone access denied." : "Mic error, please try again.");
+        });
+
+        recognition.addEventListener("end", () => {
+          if (voiceListening) {
+            try {
+              recognition.start();
+            } catch (err) {
+              voiceListening = false;
+              updateVoiceButton(false);
+              console.warn("voice restart error", err);
+              updateVoiceStatus("Mic disconnected. Tap to try again.");
+            }
+          }
+        });
+
+        voiceToggleBtn.addEventListener("click", toggleVoiceRecording);
+        setVoiceControlsEnabled(false);
       }
 
       document.getElementById("saveProfileBtn").addEventListener("click", handleSaveProfile);
       document.getElementById("logoutBtn").addEventListener("click", async () => {
         await Astralink.logoutAccount();
-        window.location.href = "/auth.html";
+        window.location.href = "/beta/auth";
       });
       document.getElementById("uploadBrowseBtn").addEventListener("click", () => memInput.click());
       document.getElementById("uploadBtn").addEventListener("click", handleUpload);
-      document.getElementById("skipUploadBtn").addEventListener("click", () => window.location.href = "/chat");
+      document.getElementById("skipUploadBtn").addEventListener("click", () => window.location.href = "/beta/chat");
       memInput.addEventListener("change", () => {
         uploadInfo.textContent = describeFiles(memInput.files);
       });
@@ -457,9 +589,10 @@
       submitAnswerBtn.addEventListener("click", submitInterviewAnswer);
       document.getElementById("pauseInterviewBtn").addEventListener("click", pauseInterview);
       ctaChatBtn.addEventListener("click", () => {
-        window.location.href = "/chat";
+        window.location.href = "/beta/chat";
       });
 
+      initVoiceControls();
       loadProfileFromStorage();
       updateSessionBadge();
       uploadInfo.textContent = describeFiles(memInput.files);
