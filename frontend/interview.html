@@ -74,7 +74,8 @@
       </nav>
       <div class="flex items-center gap-3">
         <a href="/beta/chat" class="text-sm font-semibold text-white/90 border border-white/30 rounded-full px-4 py-1.5 hover:bg-white/10">Go to chat</a>
-        <button id="logoutBtn" class="text-sm text-white/70 hover:text-white">Log out</button>
+        <a id="loginBtn" href="/beta/auth" class="text-sm text-white/70 hover:text-white">Log in</a>
+        <button id="logoutBtn" class="text-sm text-white/70 hover:text-white hidden">Log out</button>
       </div>
     </header>
     <main class="flex-1 px-4 sm:px-8 lg:px-16 xl:px-28 py-6">
@@ -225,6 +226,7 @@
       const chatCTA = document.getElementById("chatCTA");
       const ctaChatBtn = document.getElementById("ctaChatBtn");
       const logoutBtn = document.getElementById("logoutBtn");
+      const loginBtn = document.getElementById("loginBtn");
       const voiceToggleBtn = document.getElementById("voiceToggleBtn");
       const voiceStatus = document.getElementById("voiceStatus");
 
@@ -273,6 +275,16 @@
           chatCTA.classList.add("flex");
         }
         chatCTA.classList.add("is-visible");
+      }
+
+      function updateAuthButtons() {
+        const authed = Astralink.isAuthenticated();
+        if (logoutBtn) {
+          logoutBtn.classList.toggle("hidden", !authed);
+        }
+        if (loginBtn) {
+          loginBtn.classList.toggle("hidden", authed);
+        }
       }
 
       function splitList(value) {
@@ -712,10 +724,13 @@
       }
 
       document.getElementById("saveProfileBtn").addEventListener("click", handleSaveProfile);
-      document.getElementById("logoutBtn").addEventListener("click", async () => {
-        await Astralink.logoutAccount();
-        window.location.href = "/beta/auth";
-      });
+      if (logoutBtn) {
+        logoutBtn.addEventListener("click", async () => {
+          await Astralink.logoutAccount();
+          updateAuthButtons();
+          window.location.href = "/beta/auth";
+        });
+      }
       document.getElementById("uploadBrowseBtn").addEventListener("click", () => memInput.click());
       document.getElementById("uploadBtn").addEventListener("click", handleUpload);
       document.getElementById("skipUploadBtn").addEventListener("click", () => window.location.href = "/beta/chat");
@@ -747,6 +762,7 @@
       updateSessionBadge();
       uploadInfo.textContent = describeFiles(memInput.files);
       updateCTA();
+      updateAuthButtons();
     });
   </script>
 </body>
