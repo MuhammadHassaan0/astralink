@@ -1,11 +1,34 @@
+import errno
 import os
 import sqlite3
+import tempfile
 import threading
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
-STORAGE_DIR = os.path.join(os.path.dirname(__file__), "..", "storage")
+DEFAULT_STORAGE_DIR = os.path.join(os.path.dirname(__file__), "..", "storage")
+
+
+def _ensure_storage_dir() -> str:
+    base = os.environ.get("ASTRALINK_STORAGE_DIR", DEFAULT_STORAGE_DIR)
+    path = os.path.abspath(base)
+    try:
+        os.makedirs(path, exist_ok=True)
+        _probe_path = os.path.join(path, ".write-test")
+        with open(_probe_path, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        os.remove(_probe_path)
+        return path
+    except OSError as exc:
+        if exc.errno not in (errno.EROFS, errno.EPERM, errno.EACCES):
+            raise
+    fallback = os.path.join(tempfile.gettempdir(), "astralink_storage")
+    os.makedirs(fallback, exist_ok=True)
+    return fallback
+
+
+STORAGE_DIR = _ensure_storage_dir()
 DB_PATH = os.path.join(STORAGE_DIR, "conversations.db")
 _INIT_LOCK = threading.Lock()
 

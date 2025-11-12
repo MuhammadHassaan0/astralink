@@ -1,12 +1,37 @@
+import errno
 import hashlib
 import json
 import os
 import secrets
+import tempfile
 import threading
 from typing import Dict, Optional, Tuple
 
 
-_USERS_PATH = os.path.join(os.path.dirname(__file__), "users.json")
+DEFAULT_USERS_PATH = os.path.join(os.path.dirname(__file__), "users.json")
+
+
+def _resolve_users_path() -> str:
+    base = os.environ.get("ASTRALINK_USERS_PATH", DEFAULT_USERS_PATH)
+    path = os.path.abspath(base)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8"):
+            pass
+        return path
+    except OSError as exc:
+        if exc.errno not in (errno.EROFS, errno.EPERM, errno.EACCES):
+            raise
+    tmp_dir = os.path.join(tempfile.gettempdir(), "astralink_users")
+    os.makedirs(tmp_dir, exist_ok=True)
+    fallback = os.path.join(tmp_dir, "users.json")
+    if not os.path.exists(fallback):
+        with open(fallback, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+    return fallback
+
+
+_USERS_PATH = _resolve_users_path()
 _token_lock = threading.Lock()
 _users_lock = threading.Lock()
 _active_tokens: Dict[str, str] = {}
