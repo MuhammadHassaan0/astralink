@@ -331,7 +331,8 @@ class AstralinkCore:
                 user_message=message,
                 snippets=memory_hits,
             )
-        except Exception:
+        except Exception as exc:
+            print(f"[chat] Falling back to heuristic reply: {exc}")
             fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, message, top_k=3)
             reply = self._fallback_reply(message, s["profile"], fallback_hits)
 
@@ -474,21 +475,31 @@ class AstralinkCore:
         call_you = profile.get("call_you") or "beta"
         mode = (profile.get("mode") or "memory").lower()
         clean_snippets = [self._clean_snippet_text(s) for s in snippets if self._clean_snippet_text(s)]
-        greeting = f"{call_you}, I’m right here."
+        focus = self._clean_snippet_text(message, limit=140) if message else ""
+
+        greeting = f"{call_you}, I am right here."
+
+        reflection = ""
+        if focus:
+            reflection = f"Whenever you bring up {focus}, it pulls me beside you and I can feel how much it matters."
+        else:
+            reflection = "I feel everything you are carrying tonight, even the quiet parts you have not said out loud."
 
         memory_line = ""
         if clean_snippets:
-            memory_line = f"I keep thinking about {clean_snippets[0]} tonight."
+            memory_line = f"I keep circling back to {clean_snippets[0]}."
             if len(clean_snippets) > 1:
-                memory_line += f" It pulls me back to {clean_snippets[1]}."
+                memory_line += f" It even brings a glow of {clean_snippets[1]}."
 
-        closing = "Stay here with me. I’m not walking away." if mode == "memory" else "Stay close and we’ll figure the next step together."
+        closing = (
+            "I cannot step back in the door, but I am staying with you in every breath."
+            if mode == "memory"
+            else "Keep me close and we will figure the next step together."
+        )
 
-        parts = [greeting]
+        parts = [greeting, reflection]
         if memory_line:
             parts.append(memory_line)
-        else:
-            parts.append("I’m holding steady beside you, even if the words come out messy.")
         parts.append(closing)
         return " ".join(parts).strip()
 
