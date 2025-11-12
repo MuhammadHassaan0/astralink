@@ -232,9 +232,12 @@
       let profileComplete = !!Astralink.getSessionId();
       let uploadComplete = false;
       let interviewComplete = false;
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      let recognition = null;
-      let voiceListening = false;
+      const mediaSupported = Boolean(navigator.mediaDevices && window.MediaRecorder);
+      let mediaRecorder = null;
+      let audioStream = null;
+      let recordedChunks = [];
+      let recording = false;
+      let abandonRecording = false;
 
       function updateSessionBadge() {
         const sid = Astralink.getSessionId();
@@ -450,38 +453,15 @@
         }
       }
 
-      function updateVoiceButton(listening) {
+      function updateVoiceButton(isRecording) {
         if (!voiceToggleBtn) return;
         const label = voiceToggleBtn.querySelector(".voice-toggle-label");
         if (label) {
-          label.textContent = listening ? "Listening…" : "Start voice";
+          label.textContent = isRecording ? "Recording…" : "Start voice";
         }
-        voiceToggleBtn.classList.toggle("bg-primary", listening);
-        voiceToggleBtn.classList.toggle("text-white", listening);
-        voiceToggleBtn.classList.toggle("border-primary", listening);
-      }
-
-      function setVoiceControlsEnabled(enabled) {
-        if (!voiceToggleBtn) return;
-        const available = Boolean(SpeechRecognition) && enabled;
-        voiceToggleBtn.disabled = !available;
-        voiceToggleBtn.classList.toggle("opacity-50", !available);
-        if (!available && voiceListening && recognition) {
-          voiceListening = false;
-          try {
-            recognition.stop();
-          } catch (err) {
-            console.warn("voice stop error", err);
-          }
-          updateVoiceButton(false);
-        }
-        if (!SpeechRecognition) {
-          updateVoiceStatus("Voice capture is not supported in this browser.");
-        } else if (!enabled) {
-          updateVoiceStatus("Start the interview to enable the microphone.");
-        } else {
-          updateVoiceStatus("Tap the mic to speak your answer.");
-        }
+        voiceToggleBtn.classList.toggle("bg-primary", isRecording);
+        voiceToggleBtn.classList.toggle("text-white", isRecording);
+        voiceToggleBtn.classList.toggle("border-primary", isRecording);
       }
 
       function appendTranscript(text) {
@@ -492,92 +472,134 @@
         interviewAnswer.value = `${current}${spacer}${clean}`.trimStart();
       }
 
-      function toggleVoiceRecording() {
-        if (!SpeechRecognition || !recognition || voiceToggleBtn.disabled) return;
-        if (voiceListening) {
-          voiceListening = false;
-          recognition.stop();
-          updateVoiceButton(false);
-          updateVoiceStatus("Voice paused. Tap to resume.");
+      function setVoiceControlsEnabled(enabled) {
+        if (!voiceToggleBtn) return;
+        if (!mediaSupported) {
+          voiceToggleBtn.disabled = true;
+          voiceToggleBtn.classList.add("opacity-50");
+          updateVoiceStatus("Voice capture is not supported in this browser.");
           return;
         }
+        voiceToggleBtn.disabled = !enabled;
+        voiceToggleBtn.classList.toggle("opacity-50", !enabled);
+        if (!enabled && recording) {
+          abandonRecording = true;
+          stopRecording();
+        }
+        if (!enabled) {
+          updateVoiceStatus("Start the interview to enable the microphone.");
+        } else {
+          updateVoiceStatus("Tap the mic to record and auto-transcribe.");
+        }
+      }
+
+      async function ensureAudioStream() {
+        if (audioStream) return audioStream;
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStream = stream;
+        return stream;
+      }
+
+      async function startRecording() {
         try {
-          recognition.start();
-          voiceListening = true;
+          const stream = await ensureAudioStream();
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : "audio/webm";
+          recordedChunks = [];
+          abandonRecording = false;
+          mediaRecorder = new MediaRecorder(stream, { mimeType });
+          mediaRecorder.addEventListener("dataavailable", (event) => {
+            if (event.data && event.data.size > 0) {
+              recordedChunks.push(event.data);
+            }
+          });
+          mediaRecorder.addEventListener("stop", handleRecordingStop);
+          mediaRecorder.start();
+          recording = true;
           updateVoiceButton(true);
-          updateVoiceStatus("Listening… speak freely.");
+          updateVoiceStatus("Recording… tap again when you’re done.");
         } catch (err) {
-          console.warn("voice start error", err);
-          updateVoiceStatus("Could not access microphone. Check permissions.");
+          console.warn("mic request failed", err);
+          updateVoiceStatus("Microphone access denied or unavailable.");
+        }
+      }
+
+      function stopRecording() {
+        if (!recording || !mediaRecorder) return;
+        recording = false;
+        updateVoiceButton(false);
+        try {
+          mediaRecorder.stop();
+        } catch (err) {
+          console.warn("mediaRecorder stop failed", err);
+        }
+      }
+
+      function handleRecordingStop() {
+        if (mediaRecorder) {
+          mediaRecorder.removeEventListener("stop", handleRecordingStop);
+        }
+        if (abandonRecording) {
+          recordedChunks = [];
+          abandonRecording = false;
+          updateVoiceStatus("Recording canceled.");
+          return;
+        }
+        if (!recordedChunks.length) {
+          updateVoiceStatus("Captured silence. Try again.");
+          return;
+        }
+        const mimeType = mediaRecorder?.mimeType || "audio/webm";
+        mediaRecorder = null;
+        const blob = new Blob(recordedChunks, { type: mimeType });
+        recordedChunks = [];
+        uploadVoiceBlob(blob);
+      }
+
+      async function uploadVoiceBlob(blob) {
+        try {
+          updateVoiceStatus("Transcribing your answer…");
+          const fd = new FormData();
+          const sid = Astralink.getSessionId();
+          if (sid) fd.append("session_id", sid);
+          fd.append("audio", blob, `interview-${Date.now()}.webm`);
+          const res = await fetch("/api/interview/transcribe", {
+            method: "POST",
+            body: fd,
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || "Transcription failed.");
+          appendTranscript(data.transcript || "");
+          updateVoiceStatus("Added transcript. Tap to record another.");
+        } catch (err) {
+          console.warn("transcription error", err);
+          updateVoiceStatus(err.message || "Could not transcribe audio.");
+        }
+      }
+
+      function toggleVoiceRecording() {
+        if (!voiceToggleBtn || voiceToggleBtn.disabled) return;
+        if (recording) {
+          stopRecording();
+        } else {
+          startRecording();
         }
       }
 
       function initVoiceControls() {
         if (!voiceToggleBtn) return;
-        if (!SpeechRecognition) {
+        if (!mediaSupported) {
           setVoiceControlsEnabled(false);
           return;
         }
-        recognition = new SpeechRecognition();
-        recognition.lang = navigator.language || "en-US";
-        recognition.interimResults = true;
-        recognition.continuous = true;
-        recognition.maxAlternatives = 1;
-
-        recognition.addEventListener("result", (event) => {
-          let finalTranscript = "";
-          for (let i = event.resultIndex; i < event.results.length; i += 1) {
-            const result = event.results[i];
-            if (result.isFinal) {
-              finalTranscript += result[0].transcript || "";
-            }
-          }
-          if (finalTranscript) {
-            appendTranscript(finalTranscript);
-          }
-        });
-
-        recognition.addEventListener("error", (event) => {
-          console.warn("voice error", event.error);
-          if (event.error === "no-speech") {
-            updateVoiceStatus("Did not catch anything. Keep speaking…");
-            return;
-          }
-          if (event.error === "aborted") {
-            // Chrome fires aborted on manual stop; ignore.
-            return;
-          }
-          const fatalErrors = ["audio-capture", "not-allowed", "service-not-allowed"];
-          if (fatalErrors.includes(event.error)) {
-            voiceListening = false;
-            updateVoiceButton(false);
-            const msg =
-              event.error === "not-allowed" || event.error === "service-not-allowed"
-                ? "Microphone access denied. Check browser permissions."
-                : "No microphone detected. Please connect one.";
-            updateVoiceStatus(msg);
-            return;
-          }
-          voiceListening = false;
-          updateVoiceButton(false);
-          updateVoiceStatus("Mic error, please try again.");
-        });
-
-        recognition.addEventListener("end", () => {
-          if (voiceListening) {
-            try {
-              recognition.start();
-            } catch (err) {
-              voiceListening = false;
-              updateVoiceButton(false);
-              console.warn("voice restart error", err);
-              updateVoiceStatus("Mic disconnected. Tap to try again.");
-            }
-          }
-        });
-
         voiceToggleBtn.addEventListener("click", toggleVoiceRecording);
         setVoiceControlsEnabled(false);
+        window.addEventListener("beforeunload", () => {
+          if (audioStream) {
+            audioStream.getTracks().forEach((track) => track.stop());
+          }
+        });
       }
 
       document.getElementById("saveProfileBtn").addEventListener("click", handleSaveProfile);

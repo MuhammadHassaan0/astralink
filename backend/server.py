@@ -585,6 +585,28 @@ def api_interview_answer():
     return jsonify(payload)
 
 
+@app.route("/api/interview/transcribe", methods=["POST"])
+def api_interview_transcribe():
+    audio = request.files.get("audio")
+    if not audio:
+        return jsonify({"ok": False, "error": "audio_file_required"}), 400
+    try:
+        blob = audio.read()
+    except Exception:
+        blob = None
+    if not blob:
+        return jsonify({"ok": False, "error": "empty_audio"}), 400
+    try:
+        transcript = core.transcribe_audio(blob, audio.filename or "voice.webm")
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    sid, _ = _resolve_session(container=request.form)
+    response = {"ok": True, "transcript": transcript}
+    if sid:
+        response["session_id"] = sid
+    return jsonify(response)
+
+
 # -----------------------------------------------------------------------------
 # API: list memories (debug / helper)
 # -----------------------------------------------------------------------------

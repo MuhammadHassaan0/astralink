@@ -1,4 +1,5 @@
 # llm_core.py
+import io
 import math
 import os
 import re
@@ -55,6 +56,7 @@ class AstralinkCore:
                 except Exception:
                     self._client = None
         self._openai_ready = self._client is not None
+        self.transcribe_model = os.getenv("ASTRALINK_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
 
         # richer interview prompts to capture voice + context
         self.QS = [
@@ -272,6 +274,36 @@ class AstralinkCore:
                 shortened = shortened.rsplit(" ", 1)[0]
             clean = shortened.strip()
         return clean
+
+    def transcribe_audio(self, audio_bytes: bytes, filename: str = "voice.webm") -> str:
+        if not audio_bytes:
+            raise ValueError("Empty audio payload")
+        if not self._openai_ready:
+            raise RuntimeError("Transcription unavailable (missing OPENAI_API_KEY)")
+
+        safe_name = filename or "voice.webm"
+        text = ""
+        if self._use_sdk_v1:
+            file_obj = io.BytesIO(audio_bytes)
+            file_obj.name = safe_name
+            resp = self._client.audio.transcriptions.create(  # type: ignore[union-attr]
+                file=file_obj,
+                model=self.transcribe_model or "gpt-4o-mini-transcribe",
+            )
+            text = getattr(resp, "text", "") or ""
+        else:
+            file_obj = io.BytesIO(audio_bytes)
+            try:
+                resp = self._client.Audio.transcribe(  # type: ignore[union-attr]
+                    model="whisper-1",
+                    file=file_obj,
+                )
+            except AttributeError as exc:  # pragma: no cover
+                raise RuntimeError("Transcription unavailable in this environment") from exc
+            text = (resp or {}).get("text", "")
+        if not text:
+            raise RuntimeError("Received empty transcription from OpenAI")
+        return text.strip()
 
     # -------------------------
     # Interview flow
