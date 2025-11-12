@@ -200,35 +200,89 @@ def _memories_from_upload(file_storage) -> List[str]:
 # Frontend routes
 # -----------------------------------------------------------------------------
 
+def _serve_frontend(page: str):
+    return send_from_directory(_frontend_dir(), page)
+
+
 @app.route("/")
 def serve_index():
-    """Serve the main frontend page."""
-    return send_from_directory(_frontend_dir(), "index.html")
+    return _serve_frontend("index.html")
+
+
+@app.route("/beta")
+def serve_beta_index():
+    return _serve_frontend("index.html")
 
 
 @app.route("/how")
 def serve_how():
-    return send_from_directory(_frontend_dir(), "how.html")
+    return _serve_frontend("how.html")
+
+
+@app.route("/beta/how")
+def serve_beta_how():
+    return _serve_frontend("how.html")
 
 
 @app.route("/interview")
 def serve_interview():
-    return send_from_directory(_frontend_dir(), "interview.html")
+    return _serve_frontend("interview.html")
+
+
+@app.route("/beta/interview")
+def serve_beta_interview():
+    return _serve_frontend("interview.html")
 
 
 @app.route("/chat")
 def serve_chat():
-    return send_from_directory(_frontend_dir(), "chat.html")
+    return _serve_frontend("chat.html")
+
+
+@app.route("/beta/chat")
+def serve_beta_chat():
+    return _serve_frontend("chat.html")
 
 
 @app.route("/pay")
 def serve_pay():
-    return send_from_directory(_frontend_dir(), "pay.html")
+    return _serve_frontend("pay.html")
 
 
+@app.route("/beta/pay")
+def serve_beta_pay():
+    return _serve_frontend("pay.html")
+
+
+@app.route("/profile")
+def serve_profile():
+    return _serve_frontend("profile.html")
+
+
+@app.route("/beta/profile")
+def serve_beta_profile():
+    return _serve_frontend("profile.html")
+
+
+@app.route("/memories")
+def serve_memories():
+    return _serve_frontend("memories.html")
+
+
+@app.route("/beta/memories")
+def serve_beta_memories():
+    return _serve_frontend("memories.html")
+
+
+@app.route("/auth")
 @app.route("/auth.html")
 def serve_auth():
-    return send_from_directory(_frontend_dir(), "auth.html")
+    return _serve_frontend("auth.html")
+
+
+@app.route("/beta/auth")
+def serve_beta_auth():
+    return _serve_frontend("auth.html")
 
 
 @app.route("/<path:path>")
@@ -237,6 +291,13 @@ def serve_static(path: str):
     Serve other frontend assets.
     Do NOT eat /api/* routes.
     """
+    if path.startswith("api/"):
+        abort(404)
+    return send_from_directory(_frontend_dir(), path)
+
+
+@app.route("/beta/<path:path>")
+def serve_beta_static(path: str):
     if path.startswith("api/"):
         abort(404)
     return send_from_directory(_frontend_dir(), path)
