@@ -232,12 +232,16 @@
       let profileComplete = !!Astralink.getSessionId();
       let uploadComplete = false;
       let interviewComplete = false;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const mediaSupported = Boolean(navigator.mediaDevices && window.MediaRecorder);
+      const captureMode = SpeechRecognition ? "recognition" : (mediaSupported ? "record" : "none");
       let mediaRecorder = null;
       let audioStream = null;
       let recordedChunks = [];
       let recording = false;
       let abandonRecording = false;
+      let recognition = null;
+      let recognitionActive = false;
 
       function updateSessionBadge() {
         const sid = Astralink.getSessionId();
@@ -453,15 +457,15 @@
         }
       }
 
-      function updateVoiceButton(isRecording) {
+      function updateVoiceButton(isActive) {
         if (!voiceToggleBtn) return;
         const label = voiceToggleBtn.querySelector(".voice-toggle-label");
         if (label) {
-          label.textContent = isRecording ? "Recording…" : "Start voice";
+          label.textContent = isActive ? (captureMode === "recognition" ? "Listening…" : "Recording…") : "Start voice";
         }
-        voiceToggleBtn.classList.toggle("bg-primary", isRecording);
-        voiceToggleBtn.classList.toggle("text-white", isRecording);
-        voiceToggleBtn.classList.toggle("border-primary", isRecording);
+        voiceToggleBtn.classList.toggle("bg-primary", isActive);
+        voiceToggleBtn.classList.toggle("text-white", isActive);
+        voiceToggleBtn.classList.toggle("border-primary", isActive);
       }
 
       function appendTranscript(text) {
@@ -474,7 +478,7 @@
 
       function setVoiceControlsEnabled(enabled) {
         if (!voiceToggleBtn) return;
-        if (!mediaSupported) {
+        if (captureMode === "none") {
           voiceToggleBtn.disabled = true;
           voiceToggleBtn.classList.add("opacity-50");
           updateVoiceStatus("Voice capture is not supported in this browser.");
@@ -482,15 +486,105 @@
         }
         voiceToggleBtn.disabled = !enabled;
         voiceToggleBtn.classList.toggle("opacity-50", !enabled);
-        if (!enabled && recording) {
-          abandonRecording = true;
-          stopRecording();
-        }
         if (!enabled) {
+          if (captureMode === "record" && recording) {
+            abandonRecording = true;
+            stopRecording();
+          }
+          if (captureMode === "recognition" && recognitionActive) {
+            stopRecognition();
+          }
           updateVoiceStatus("Start the interview to enable the microphone.");
         } else {
-          updateVoiceStatus("Tap the mic to record and auto-transcribe.");
+          const instructions = captureMode === "recognition"
+            ? "Tap the mic and speak naturally. We’ll transcribe live."
+            : "Tap the mic to record and we’ll transcribe when you stop.";
+          updateVoiceStatus(instructions);
         }
+      }
+
+      function initRecognition() {
+        if (!SpeechRecognition) return;
+        recognition = new SpeechRecognition();
+        recognition.lang = navigator.language || "en-US";
+        recognition.interimResults = true;
+        recognition.continuous = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.addEventListener("result", (event) => {
+          let finalTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            if (result.isFinal) {
+              finalTranscript += result[0].transcript || "";
+            }
+          }
+          if (finalTranscript) {
+            appendTranscript(finalTranscript);
+          }
+        });
+
+        recognition.addEventListener("error", (event) => {
+          console.warn("speech recognition error", event.error);
+          if (event.error === "no-speech") {
+            updateVoiceStatus("I didn't catch that. Keep talking…");
+            return;
+          }
+          if (event.error === "aborted") {
+            return;
+          }
+          const fatal = ["audio-capture", "not-allowed", "service-not-allowed"];
+          if (fatal.includes(event.error)) {
+            recognitionActive = false;
+            updateVoiceButton(false);
+            const msg = event.error === "audio-capture"
+              ? "No microphone detected. Please connect one."
+              : "Microphone access denied. Check browser permissions.";
+            updateVoiceStatus(msg);
+            return;
+          }
+          recognitionActive = false;
+          updateVoiceButton(false);
+          updateVoiceStatus("Voice capture stopped unexpectedly.");
+        });
+
+        recognition.addEventListener("end", () => {
+          if (recognitionActive) {
+            try {
+              recognition.start();
+            } catch (err) {
+              recognitionActive = false;
+              updateVoiceButton(false);
+              console.warn("speech recognition restart failed", err);
+              updateVoiceStatus("Mic disconnected. Tap to try again.");
+            }
+          }
+        });
+      }
+
+      function startRecognition() {
+        if (!recognition) return;
+        try {
+          recognition.start();
+          recognitionActive = true;
+          updateVoiceButton(true);
+          updateVoiceStatus("Listening… speak freely.");
+        } catch (err) {
+          console.warn("speech recognition start failed", err);
+          updateVoiceStatus("Could not start microphone. Check permissions.");
+        }
+      }
+
+      function stopRecognition() {
+        if (!recognition || !recognitionActive) return;
+        recognitionActive = false;
+        try {
+          recognition.stop();
+        } catch (err) {
+          console.warn("speech recognition stop failed", err);
+        }
+        updateVoiceButton(false);
+        updateVoiceStatus("Voice paused. Tap to resume.");
       }
 
       async function ensureAudioStream() {
@@ -580,26 +674,41 @@
 
       function toggleVoiceRecording() {
         if (!voiceToggleBtn || voiceToggleBtn.disabled) return;
-        if (recording) {
-          stopRecording();
-        } else {
-          startRecording();
+        if (captureMode === "recognition") {
+          if (recognitionActive) {
+            stopRecognition();
+          } else {
+            startRecognition();
+          }
+          return;
         }
+        if (captureMode === "record") {
+          if (recording) {
+            stopRecording();
+          } else {
+            startRecording();
+          }
+          return;
+        }
+        updateVoiceStatus("Voice capture is not supported in this browser.");
       }
 
       function initVoiceControls() {
         if (!voiceToggleBtn) return;
-        if (!mediaSupported) {
-          setVoiceControlsEnabled(false);
-          return;
+        if (captureMode === "recognition") {
+          initRecognition();
+        } else if (captureMode === "record" && !mediaSupported) {
+          updateVoiceStatus("Voice capture is not supported in this browser.");
         }
         voiceToggleBtn.addEventListener("click", toggleVoiceRecording);
+        if (captureMode === "record") {
+          window.addEventListener("beforeunload", () => {
+            if (audioStream) {
+              audioStream.getTracks().forEach((track) => track.stop());
+            }
+          });
+        }
         setVoiceControlsEnabled(false);
-        window.addEventListener("beforeunload", () => {
-          if (audioStream) {
-            audioStream.getTracks().forEach((track) => track.stop());
-          }
-        });
       }
 
       document.getElementById("saveProfileBtn").addEventListener("click", handleSaveProfile);
