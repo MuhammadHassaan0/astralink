@@ -1,9 +1,11 @@
 # server.py
 
-import os
 import csv
+import os
 from typing import List
+
 from flask import Flask, request, jsonify, send_from_directory, abort
+
 try:
     from flask_cors import CORS
 except ImportError:
@@ -11,9 +13,13 @@ except ImportError:
     def CORS(app, *args, **kwargs):
         return app
 
-from llm_core import AstralinkCore
-import auth_store
-import conversation_store
+try:  # Allow running as a package or standalone module.
+    from .llm_core import AstralinkCore
+    from . import auth_store, conversation_store
+except ImportError:  # pragma: no cover
+    from llm_core import AstralinkCore  # type: ignore
+    import auth_store  # type: ignore
+    import conversation_store  # type: ignore
 
 
 # -----------------------------------------------------------------------------
@@ -39,7 +45,7 @@ def _get_session_id(container) -> str | None:
 
 def _frontend_dir() -> str:
     """Absolute path to the frontend folder."""
-    return os.path.join(os.path.dirname(__file__), "..", "frontend")
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 
 
 def _get_auth_token(extra: dict | None = None) -> str | None:

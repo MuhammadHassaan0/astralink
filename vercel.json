@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    { "source": "/api", "destination": "/api/index.py" },
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/beta", "destination": "/frontend/index.html" },
+    { "source": "/beta/how", "destination": "/frontend/how.html" },
+    { "source": "/beta/interview", "destination": "/frontend/interview.html" },
+    { "source": "/beta/chat", "destination": "/frontend/chat.html" },
+    { "source": "/beta/pay", "destination": "/frontend/pay.html" },
+    { "source": "/beta/profile", "destination": "/frontend/profile.html" },
+    { "source": "/beta/memories", "destination": "/frontend/memories.html" },
+    { "source": "/beta/auth", "destination": "/frontend/auth.html" },
+    { "source": "/app.js", "destination": "/frontend/app.js" },
+    { "source": "/", "destination": "/frontend/index.html" }
+  ]
+}
