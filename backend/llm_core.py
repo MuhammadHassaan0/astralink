@@ -8,11 +8,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from openai import OpenAI  # type: ignore
-except Exception:
-    OpenAI = None  # type: ignore
-
-try:
     import openai as openai_legacy  # type: ignore
 except Exception:
     openai_legacy = None  # type: ignore
@@ -40,23 +35,14 @@ class AstralinkCore:
         self.model = os.getenv("ASTRALINK_MODEL", "gpt-3.5-turbo")
         self.embedding_model = os.getenv("ASTRALINK_EMBED_MODEL", "text-embedding-3-small")
         self._client = None
-        self._use_sdk_v1 = False
-        if OPENAI_API_KEY:
-            if OpenAI is not None:
-                try:
-                    self._client = OpenAI(api_key=OPENAI_API_KEY)
-                    self._use_sdk_v1 = True
-                except Exception:
-                    self._client = None
-            if self._client is None and openai_legacy is not None:
-                try:
-                    openai_legacy.api_key = OPENAI_API_KEY
-                    self._client = openai_legacy
-                    self._use_sdk_v1 = False
-                except Exception:
-                    self._client = None
+        if OPENAI_API_KEY and openai_legacy is not None:
+            try:
+                openai_legacy.api_key = OPENAI_API_KEY
+                self._client = openai_legacy
+            except Exception:
+                self._client = None
         self._openai_ready = self._client is not None
-        self.transcribe_model = os.getenv("ASTRALINK_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+        self.transcribe_model = os.getenv("ASTRALINK_TRANSCRIBE_MODEL", "whisper-1")
 
         # richer interview prompts to capture voice + context
         self.QS = [
@@ -196,12 +182,6 @@ class AstralinkCore:
         if not texts or not self._openai_ready or not self.embedding_model:
             return None
         try:
-            if self._use_sdk_v1:
-                resp = self._client.embeddings.create(  # type: ignore[union-attr]
-                    model=self.embedding_model,
-                    input=texts,
-                )
-                return [item.embedding for item in resp.data]
             resp = self._client.Embedding.create(  # type: ignore[union-attr]
                 model=self.embedding_model,
                 input=texts,
@@ -282,25 +262,16 @@ class AstralinkCore:
             raise RuntimeError("Transcription unavailable (missing OPENAI_API_KEY)")
 
         safe_name = filename or "voice.webm"
-        text = ""
-        if self._use_sdk_v1:
-            file_obj = io.BytesIO(audio_bytes)
-            file_obj.name = safe_name
-            resp = self._client.audio.transcriptions.create(  # type: ignore[union-attr]
+        file_obj = io.BytesIO(audio_bytes)
+        file_obj.name = safe_name
+        try:
+            resp = self._client.Audio.transcribe(  # type: ignore[union-attr]
+                model=self.transcribe_model,
                 file=file_obj,
-                model=self.transcribe_model or "gpt-4o-mini-transcribe",
             )
-            text = getattr(resp, "text", "") or ""
-        else:
-            file_obj = io.BytesIO(audio_bytes)
-            try:
-                resp = self._client.Audio.transcribe(  # type: ignore[union-attr]
-                    model="whisper-1",
-                    file=file_obj,
-                )
-            except AttributeError as exc:  # pragma: no cover
-                raise RuntimeError("Transcription unavailable in this environment") from exc
-            text = (resp or {}).get("text", "")
+        except AttributeError as exc:  # pragma: no cover
+            raise RuntimeError("Transcription unavailable in this environment") from exc
+        text = (resp or {}).get("text", "")
         if not text:
             raise RuntimeError("Received empty transcription from OpenAI")
         return text.strip()
@@ -483,22 +454,13 @@ class AstralinkCore:
         messages.extend(history)
         messages.append({"role": "user", "content": user_message.strip()})
 
-        if self._use_sdk_v1:
-            resp = self._client.chat.completions.create(  # type: ignore[union-attr]
-                model=self.model,
-                messages=messages,
-                temperature=0.65,
-                max_tokens=320,
-            )
-            reply = (resp.choices[0].message.content or "").strip()
-        else:
-            resp = self._client.ChatCompletion.create(  # type: ignore[union-attr]
-                model=self.model,
-                messages=messages,
-                temperature=0.65,
-                max_tokens=320,
-            )
-            reply = resp["choices"][0]["message"]["content"].strip()
+        resp = self._client.ChatCompletion.create(  # type: ignore[union-attr]
+            model=self.model,
+            messages=messages,
+            temperature=0.65,
+            max_tokens=320,
+        )
+        reply = resp["choices"][0]["message"]["content"].strip()
         if not reply:
             raise RuntimeError("Empty response")
         return reply
