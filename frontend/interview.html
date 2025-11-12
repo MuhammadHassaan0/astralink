@@ -539,9 +539,28 @@
 
         recognition.addEventListener("error", (event) => {
           console.warn("voice error", event.error);
+          if (event.error === "no-speech") {
+            updateVoiceStatus("Did not catch anything. Keep speaking…");
+            return;
+          }
+          if (event.error === "aborted") {
+            // Chrome fires aborted on manual stop; ignore.
+            return;
+          }
+          const fatalErrors = ["audio-capture", "not-allowed", "service-not-allowed"];
+          if (fatalErrors.includes(event.error)) {
+            voiceListening = false;
+            updateVoiceButton(false);
+            const msg =
+              event.error === "not-allowed" || event.error === "service-not-allowed"
+                ? "Microphone access denied. Check browser permissions."
+                : "No microphone detected. Please connect one.";
+            updateVoiceStatus(msg);
+            return;
+          }
           voiceListening = false;
           updateVoiceButton(false);
-          updateVoiceStatus(event.error === "not-allowed" ? "Microphone access denied." : "Mic error, please try again.");
+          updateVoiceStatus("Mic error, please try again.");
         });
 
         recognition.addEventListener("end", () => {
