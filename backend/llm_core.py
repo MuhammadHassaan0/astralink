@@ -466,7 +466,7 @@ class AstralinkCore:
         return reply
 
     def _fallback_reply(self, message: str, profile: Dict, snippets: List[str]) -> str:
-        call_you = profile.get("call_you") or "beta"
+        call_you = profile.get("call_you") or profile.get("relationship") or profile.get("name") or "love"
         mode = (profile.get("mode") or "memory").lower()
         clean_snippets = [self._clean_snippet_text(s) for s in snippets if self._clean_snippet_text(s)]
         focus = self._clean_snippet_text(message, limit=140) if message else ""
