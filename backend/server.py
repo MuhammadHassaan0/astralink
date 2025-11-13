@@ -2,6 +2,7 @@
 
 import csv
 import os
+from datetime import datetime
 from typing import List
 
 from flask import Flask, request, jsonify, send_from_directory, abort
@@ -14,10 +15,10 @@ except ImportError:
         return app
 
 try:  # Allow running as a package or standalone module.
-    from .llm_core import AstralinkCore
+    from .llm_core import AstralinkCore, ChatGenerationError
     from . import auth_store, conversation_store
 except ImportError:  # pragma: no cover
-    from llm_core import AstralinkCore  # type: ignore
+    from llm_core import AstralinkCore, ChatGenerationError  # type: ignore
     import auth_store  # type: ignore
     import conversation_store  # type: ignore
 
@@ -470,20 +471,48 @@ def api_chat():
     message = (data.get("message") or "").strip()
 
     if not message:
-        return jsonify({"ok": False, "error": "Empty message"}), 400
+        resp = jsonify({"ok": False, "error": "Empty message"})
+        resp.status_code = 400
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
     # Ensure session exists (allows cold-start chat)
     if not sid or sid not in core.sessions:
         sid, _ = core.new_session({})
 
-    ok, reply = core.chat(sid, message)
+    session_obj = core.get_session(sid)
+    history = session_obj["messages"] if session_obj else []
+    try:
+        reply, used_fallback, error_summary = core.generate_reply(
+            sid=sid,
+            text=message,
+            history_override=history,
+        )
+    except ChatGenerationError as exc:
+        print(f"CHAT: EXCEPTION -> {exc}")
+        resp = jsonify({"error": str(exc), "fallback": False})
+        resp.status_code = 502
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
-    return jsonify({
-        "ok": ok,
+    if session_obj is not None:
+        ts = datetime.utcnow().isoformat() + "Z"
+        session_obj["messages"].append({"role": "user", "content": message, "ts": ts})
+        session_obj["messages"].append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat() + "Z"})
+
+    body = {
+        "ok": True,
         "session": sid,
         "session_id": sid,
         "reply": reply,
-    })
+    }
+    if used_fallback:
+        body["fallback"] = True
+        if error_summary:
+            body["error"] = error_summary
+    resp = jsonify(body)
+    resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+    return resp
 
 
 # -----------------------------------------------------------------------------
@@ -514,7 +543,10 @@ def api_get_conversation(convo_id: str):
     ctx = _resolve_user_context()
     convo = conversation_store.get_conversation(ctx["user_key"], convo_id)
     if not convo:
-        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+        resp = jsonify({"ok": False, "error": "conversation_not_found"})
+        resp.status_code = 404
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
     return jsonify({"ok": True, "session_id": ctx["session_id"], "conversation": convo})
 
 
@@ -524,32 +556,49 @@ def api_conversation_message(convo_id: str):
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
-        return jsonify({"ok": False, "error": "empty_message"}), 400
+        resp = jsonify({"ok": False, "error": "empty_message"})
+        resp.status_code = 400
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
     convo = conversation_store.get_conversation(ctx["user_key"], convo_id)
     if not convo:
-        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+        resp = jsonify({"ok": False, "error": "conversation_not_found"})
+        resp.status_code = 404
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
     history = (convo.get("messages") or [])[:]
     if not conversation_store.append_message(ctx["user_key"], convo_id, "user", text):
-        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+        resp = jsonify({"ok": False, "error": "conversation_not_found"})
+        resp.status_code = 404
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
     sid = ctx["session_id"]
     if ctx["email"]:
         sid = _ensure_session_for_email(ctx["email"])
     try:
-        ok, reply = core.chat(sid, text, history_override=history)
-    except Exception:
-        return jsonify({"ok": False, "error": "server_error"}), 500
-
-    if not ok:
-        return jsonify({"ok": False, "error": "server_error"}), 500
+        reply, used_fallback, error_summary = core.generate_reply(
+            sid=sid,
+            text=text,
+            history_override=history,
+        )
+    except ChatGenerationError as exc:
+        print(f"CHAT: EXCEPTION -> {exc}")
+        resp = jsonify({"error": str(exc), "fallback": False})
+        resp.status_code = 502
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
     if not conversation_store.append_message(ctx["user_key"], convo_id, "assistant", reply):
-        return jsonify({"ok": False, "error": "conversation_not_found"}), 404
+        resp = jsonify({"ok": False, "error": "conversation_not_found"})
+        resp.status_code = 404
+        resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+        return resp
 
     updated = conversation_store.get_conversation(ctx["user_key"], convo_id) or convo
-    return jsonify({
+    body = {
         "ok": True,
         "reply": reply,
         "session_id": sid,
@@ -561,7 +610,14 @@ def api_conversation_message(convo_id: str):
             "created_at": updated.get("created_at"),
             "message_count": updated.get("message_count", len(updated.get("messages", []))),
         }
-    })
+    }
+    if used_fallback:
+        body["fallback"] = True
+        if error_summary:
+            body["error"] = error_summary
+    resp = jsonify(body)
+    resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+    return resp
 
 
 @app.post("/api/conversations/<conv_id>/message")
@@ -569,7 +625,10 @@ def conversations_message(conv_id: str):
     payload = request.get_json(silent=True) or {}
     text = (payload.get("text") or "").strip()
     if not text:
-        return jsonify({"error": "missing text"}), 400
+        resp = jsonify({"error": "missing text"})
+        resp.status_code = 400
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
 
     ctx = _resolve_user_context()
     sid = core.ensure_session(ctx.get("session_id"))
@@ -580,20 +639,35 @@ def conversations_message(conv_id: str):
     core.append_message(sid, conv_id, role="user", text=text)
 
     model = os.getenv("ASTRALINK_MODEL", "gpt-5.1")
-    reply = core.generate_reply(
-        sid=sid,
-        text=text,
-        conversation_id=conv_id,
-        model=model,
-    )
+    try:
+        reply, used_fallback, error_summary = core.generate_reply(
+            sid=sid,
+            text=text,
+            conversation_id=conv_id,
+            model=model,
+        )
+    except ChatGenerationError as exc:
+        print(f"CHAT: EXCEPTION -> {exc}")
+        resp = jsonify({"error": str(exc), "fallback": False})
+        resp.status_code = 502
+        resp.headers["X-Astralink-Fallback"] = "false"
+        return resp
+
     core.append_message(sid, conv_id, role="assistant", text=reply)
 
     messages = core.get_messages(sid, conv_id, limit=50)
-    return jsonify({
+    body = {
         "reply": reply,
         "conversation_id": conv_id,
         "messages": messages,
-    })
+    }
+    if used_fallback:
+        body["fallback"] = True
+        if error_summary:
+            body["error"] = error_summary
+    resp = jsonify(body)
+    resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+    return resp
 
 
 @app.route("/api/conversations/<convo_id>/title", methods=["POST"])
@@ -676,6 +750,25 @@ def api_interview_answer():
         payload["next_question"] = next_q_or_summary
 
     return jsonify(payload)
+
+
+@app.get("/api/diag/openai")
+def api_diag_openai():
+    has_key = bool(os.getenv("OPENAI_API_KEY"))
+    configured_model = os.getenv("ASTRALINK_MODEL")
+    model_label = configured_model or "(default)"
+    can_call = False
+    error_text = None
+    if has_key:
+        can_call, error_text = core.check_openai_health(configured_model)
+    else:
+        error_text = "OPENAI_API_KEY missing"
+    return jsonify({
+        "has_key": has_key,
+        "model": model_label,
+        "can_call": can_call,
+        "error": error_text,
+    })
 
 
 @app.route("/api/interview/transcribe", methods=["POST"])

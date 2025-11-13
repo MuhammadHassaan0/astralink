@@ -8,12 +8,31 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from openai import OpenAI  # type: ignore
+    from openai import (
+        OpenAI,
+        APIConnectionError,
+        APIError,
+        AuthenticationError,
+        BadRequestError,
+        NotFoundError,
+        PermissionDeniedError,
+        RateLimitError,
+    )  # type: ignore
 except Exception:
     OpenAI = None  # type: ignore
+    APIConnectionError = APIError = AuthenticationError = BadRequestError = NotFoundError = PermissionDeniedError = RateLimitError = Exception  # type: ignore
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+
+class ChatGenerationError(Exception):
+    """Raised when OpenAI generation fails and strict errors are enabled."""
+
+    def __init__(self, message: str, *, fallback: bool = False):
+        super().__init__(message)
+        self.message = message
+        self.fallback = fallback
 
 def gen_sid() -> str:
     return uuid.uuid4().hex
@@ -58,6 +77,11 @@ class AstralinkCore:
             "When life got heavy, how did they show up for you?",
             "If you could share one unfinished thought or story with them, what would you say right now?"
         ]
+
+    @staticmethod
+    def _strict_errors_enabled() -> bool:
+        val = os.getenv("ASTRALINK_STRICT_ERRORS", "true").strip().lower()
+        return val in ("1", "true", "yes", "on")
 
     # -------------------------
     # Session + Profile helpers
@@ -324,7 +348,7 @@ class AstralinkCore:
             return False, "Invalid session"
 
         history_source = history_override if history_override is not None else s["messages"]
-        reply = self.generate_reply(
+        reply, _, _ = self.generate_reply(
             sid=sid,
             text=message,
             history_override=history_source,
@@ -360,6 +384,23 @@ class AstralinkCore:
             return conv[:]
         return conv[-limit:]
 
+    def check_openai_health(self, model: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        if not self._openai_ready:
+            return False, "OpenAI client not initialized"
+        target_model = model or self.model
+        try:
+            self._client.chat.completions.create(
+                model=target_model,
+                messages=[
+                    {"role": "system", "content": "diagnostic ping"},
+                    {"role": "user", "content": "ping"},
+                ],
+                max_tokens=5,
+            )
+            return True, None
+        except Exception as exc:
+            return False, f"{exc.__class__.__name__}: {exc}"
+
     def _conversation_history(self, sid: str, conv_id: Optional[str]) -> List[Dict[str, Any]]:
         if not conv_id:
             return self.sessions.get(sid, {}).get("messages", [])
@@ -379,27 +420,64 @@ class AstralinkCore:
         conversation_id: Optional[str] = None,
         model: Optional[str] = None,
         history_override: Optional[List[Dict]] = None,
-    ) -> str:
+    ) -> Tuple[str, bool, Optional[str]]:
         profile = self.sessions.get(sid, {}).get("profile", {})
         history_source = history_override if history_override is not None else self._conversation_history(sid, conversation_id)
         history = self._history_for_prompt(history_source, limit=6)
         memory_hits = self.search_memory_chunks(sid, text, top_k=6)
         target_model = model or self.model
-        print("CHAT: calling OpenAI model =", target_model)
-        try:
-            reply = self._llm_reply(
-                profile=profile,
-                history=history,
-                user_message=text,
-                snippets=memory_hits,
-                model=target_model,
-            )
-            print("CHAT: OpenAI success")
-        except Exception as exc:
-            print(f"CHAT: FALLBACK TRIGGERED ({exc})")
-            fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
-            reply = self._fallback_reply(text, profile, fallback_hits)
-        return self._postprocess_reply(reply)
+        strict = self._strict_errors_enabled()
+        fallback_used = False
+        error_summary: Optional[str] = None
+
+        attempt_model = target_model
+        downgraded = False
+
+        while True:
+            print("CHAT: calling OpenAI model =", attempt_model)
+            try:
+                reply = self._llm_reply(
+                    profile=profile,
+                    history=history,
+                    user_message=text,
+                    snippets=memory_hits,
+                    model=attempt_model,
+                )
+                print("CHAT: OpenAI success")
+                return self._postprocess_reply(reply), False, None
+            except (
+                AuthenticationError,
+                PermissionDeniedError,
+                NotFoundError,
+                RateLimitError,
+                APIConnectionError,
+                BadRequestError,
+                APIError,
+            ) as exc:
+                print(f"CHAT: OpenAI error [{exc.__class__.__name__}] {exc}")
+                should_downgrade = (
+                    not downgraded
+                    and attempt_model != "gpt-4o-mini"
+                    and isinstance(exc, (PermissionDeniedError, NotFoundError))
+                )
+                if should_downgrade:
+                    attempt_model = "gpt-4o-mini"
+                    downgraded = True
+                    print("CHAT: model_downgrade -> gpt-4o-mini")
+                    continue
+                error_summary = f"{exc.__class__.__name__}: {exc}"
+            except Exception as exc:
+                print(f"CHAT: OpenAI error [{exc.__class__.__name__}] {exc}")
+                error_summary = f"{exc.__class__.__name__}: {exc}"
+            break
+
+        if strict:
+            raise ChatGenerationError(error_summary or "chat_generation_failed", fallback=False)
+
+        print("CHAT: FALLBACK TRIGGERED (lenient mode)")
+        fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
+        reply = self._fallback_reply(text, profile, fallback_hits)
+        return self._postprocess_reply(reply), True, error_summary
 
     # -------------------------
     # LLM prompting
