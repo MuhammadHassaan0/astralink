@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    import openai as openai_legacy  # type: ignore
+    from openai import OpenAI  # type: ignore
 except Exception:
-    openai_legacy = None  # type: ignore
+    OpenAI = None  # type: ignore
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,14 +37,13 @@ class AstralinkCore:
         self.model = os.getenv("ASTRALINK_MODEL", "gpt-5.1")
         self.embedding_model = os.getenv("ASTRALINK_EMBED_MODEL", "text-embedding-3-small")
         self._client = None
-        if OPENAI_API_KEY and openai_legacy is not None:
+        if OPENAI_API_KEY and OpenAI is not None:
             try:
-                openai_legacy.api_key = OPENAI_API_KEY
-                self._client = openai_legacy
+                self._client = OpenAI(api_key=OPENAI_API_KEY)
             except Exception:
                 self._client = None
         self._openai_ready = self._client is not None
-        self.transcribe_model = os.getenv("ASTRALINK_TRANSCRIBE_MODEL", "whisper-1")
+        self.transcribe_model = os.getenv("ASTRALINK_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
 
         # richer interview prompts to capture voice + context
         self.QS = [
@@ -185,11 +184,11 @@ class AstralinkCore:
         if not texts or not self._openai_ready or not self.embedding_model:
             return None
         try:
-            resp = self._client.Embedding.create(  # type: ignore[union-attr]
+            resp = self._client.embeddings.create(
                 model=self.embedding_model,
                 input=texts,
             )
-            return [item["embedding"] for item in resp["data"]]
+            return [item.embedding for item in resp.data]
         except Exception:
             return None
 
@@ -267,14 +266,11 @@ class AstralinkCore:
         safe_name = filename or "voice.webm"
         file_obj = io.BytesIO(audio_bytes)
         file_obj.name = safe_name
-        try:
-            resp = self._client.Audio.transcribe(  # type: ignore[union-attr]
-                model=self.transcribe_model,
-                file=file_obj,
-            )
-        except AttributeError as exc:  # pragma: no cover
-            raise RuntimeError("Transcription unavailable in this environment") from exc
-        text = (resp or {}).get("text", "")
+        resp = self._client.audio.transcriptions.create(
+            file=file_obj,
+            model=self.transcribe_model,
+        )
+        text = getattr(resp, "text", "") or ""
         if not text:
             raise RuntimeError("Received empty transcription from OpenAI")
         return text.strip()
@@ -396,6 +392,7 @@ class AstralinkCore:
                 history=history,
                 user_message=text,
                 snippets=memory_hits,
+                model=target_model,
             )
             print("CHAT: OpenAI success")
         except Exception as exc:
@@ -502,10 +499,12 @@ class AstralinkCore:
         history: List[Dict],
         user_message: str,
         snippets: List[str],
+        model: Optional[str] = None,
     ) -> str:
         if not self._openai_ready:
             raise RuntimeError("OpenAI API key missing")
 
+        target_model = model or self.model
         system_text = self._system_prompt(profile, snippets)
         messages = [{"role": "system", "content": system_text}]
         if snippets:
@@ -518,13 +517,13 @@ class AstralinkCore:
         messages.extend(history)
         messages.append({"role": "user", "content": user_message.strip()})
 
-        resp = self._client.ChatCompletion.create(  # type: ignore[union-attr]
-            model=self.model,
+        resp = self._client.chat.completions.create(
+            model=target_model,
             messages=messages,
             temperature=0.65,
             max_tokens=320,
         )
-        reply = resp["choices"][0]["message"]["content"].strip()
+        reply = (resp.choices[0].message.content or "").strip()
         if not reply:
             raise RuntimeError("Empty response")
         return reply
