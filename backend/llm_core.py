@@ -32,7 +32,7 @@ class AstralinkCore:
         # semantic memory chunks for lightweight RAG
         self.memory_chunks: Dict[str, List[Dict[str, Any]]] = {}
         self.default_credits = 5
-        self.model = os.getenv("ASTRALINK_MODEL", "gpt-3.5-turbo")
+        self.model = os.getenv("ASTRALINK_MODEL", "gpt-5.1")
         self.embedding_model = os.getenv("ASTRALINK_EMBED_MODEL", "text-embedding-3-small")
         self._client = None
         if OPENAI_API_KEY and openai_legacy is not None:
@@ -451,6 +451,13 @@ class AstralinkCore:
 
         system_text = self._system_prompt(profile, snippets)
         messages = [{"role": "system", "content": system_text}]
+        if snippets:
+            formatted = "\n".join(f"- {s}" for s in snippets if s)
+            if formatted:
+                messages.append({
+                    "role": "system",
+                    "content": f"Reference these memories first:\n{formatted}"
+                })
         messages.extend(history)
         messages.append({"role": "user", "content": user_message.strip()})
 
