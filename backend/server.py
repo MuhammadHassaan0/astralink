@@ -464,7 +464,8 @@ def api_upload_memories():
 # API: chat
 # -----------------------------------------------------------------------------
 
-@app.route("/api/chat", methods=["POST"])
+@app.post("/chat")
+@app.post("/api/chat")
 def api_chat():
     data = request.get_json() or {}
     sid, _ = _resolve_session(data=data)
@@ -620,6 +621,7 @@ def api_conversation_message(convo_id: str):
     return resp
 
 
+@app.post("/conversations/<conv_id>/message")
 @app.post("/api/conversations/<conv_id>/message")
 def conversations_message(conv_id: str):
     payload = request.get_json(silent=True) or {}
@@ -638,13 +640,11 @@ def conversations_message(conv_id: str):
     core.get_or_create_conversation(sid, conv_id)
     core.append_message(sid, conv_id, role="user", text=text)
 
-    model = os.getenv("ASTRALINK_MODEL", "gpt-5.1")
     try:
         reply, used_fallback, error_summary = core.generate_reply(
             sid=sid,
             text=text,
             conversation_id=conv_id,
-            model=model,
         )
     except ChatGenerationError as exc:
         print(f"CHAT: EXCEPTION -> {exc}")
@@ -752,6 +752,7 @@ def api_interview_answer():
     return jsonify(payload)
 
 
+@app.get("/diag/openai")
 @app.get("/api/diag/openai")
 def api_diag_openai():
     has_key = bool(os.getenv("OPENAI_API_KEY"))
@@ -763,6 +764,7 @@ def api_diag_openai():
         can_call, error_text = core.check_openai_health(configured_model)
     else:
         error_text = "OPENAI_API_KEY missing"
+    print(f"CHAT: DIAG can_call={can_call} error={error_text}")
     return jsonify({
         "has_key": has_key,
         "model": model_label,

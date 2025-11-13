@@ -24,6 +24,9 @@ except Exception:
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+STRICT_ERRORS = os.getenv("ASTRALINK_STRICT_ERRORS", "true").strip().lower() in ("1", "true", "yes", "on")
+OFFLINE = os.getenv("ASTRALINK_OFFLINE", "false").strip().lower() in ("1", "true", "yes", "on")
+DEFAULT_MODEL = os.getenv("ASTRALINK_MODEL", "gpt-4o-mini")
 
 
 class ChatGenerationError(Exception):
@@ -53,7 +56,7 @@ class AstralinkCore:
         # semantic memory chunks for lightweight RAG
         self.memory_chunks: Dict[str, List[Dict[str, Any]]] = {}
         self.default_credits = 5
-        self.model = os.getenv("ASTRALINK_MODEL", "gpt-5.1")
+        self.model = DEFAULT_MODEL
         self.embedding_model = os.getenv("ASTRALINK_EMBED_MODEL", "text-embedding-3-small")
         self._client = None
         if OPENAI_API_KEY and OpenAI is not None:
@@ -80,8 +83,7 @@ class AstralinkCore:
 
     @staticmethod
     def _strict_errors_enabled() -> bool:
-        val = os.getenv("ASTRALINK_STRICT_ERRORS", "true").strip().lower()
-        return val in ("1", "true", "yes", "on")
+        return STRICT_ERRORS
 
     # -------------------------
     # Session + Profile helpers
@@ -385,9 +387,11 @@ class AstralinkCore:
         return conv[-limit:]
 
     def check_openai_health(self, model: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        if OFFLINE:
+            return False, "OFFLINE flag set"
         if not self._openai_ready:
             return False, "OpenAI client not initialized"
-        target_model = model or self.model
+        target_model = model or DEFAULT_MODEL
         try:
             self._client.chat.completions.create(
                 model=target_model,
@@ -425,16 +429,21 @@ class AstralinkCore:
         history_source = history_override if history_override is not None else self._conversation_history(sid, conversation_id)
         history = self._history_for_prompt(history_source, limit=6)
         memory_hits = self.search_memory_chunks(sid, text, top_k=6)
-        target_model = model or self.model
         strict = self._strict_errors_enabled()
-        fallback_used = False
-        error_summary: Optional[str] = None
 
-        attempt_model = target_model
+        def build_fallback() -> str:
+            fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
+            return self._fallback_reply(text, profile, fallback_hits)
+
+        if OFFLINE:
+            print("CHAT: OFFLINE=true → forcing fallback")
+            return self._postprocess_reply(build_fallback()), True, "OFFLINE"
+
+        attempt_model = model or self.model
         downgraded = False
 
         while True:
-            print("CHAT: calling OpenAI model =", attempt_model)
+            print(f"CHAT: calling OpenAI model={attempt_model} sid={sid} text_len={len(text)}")
             try:
                 reply = self._llm_reply(
                     profile=profile,
@@ -443,41 +452,34 @@ class AstralinkCore:
                     snippets=memory_hits,
                     model=attempt_model,
                 )
-                print("CHAT: OpenAI success")
+                print(f"CHAT: OpenAI success model={attempt_model}")
                 return self._postprocess_reply(reply), False, None
             except (
                 AuthenticationError,
                 PermissionDeniedError,
                 NotFoundError,
                 RateLimitError,
-                APIConnectionError,
                 BadRequestError,
+                APIConnectionError,
                 APIError,
+                Exception,
             ) as exc:
-                print(f"CHAT: OpenAI error [{exc.__class__.__name__}] {exc}")
+                err_text = f"{exc.__class__.__name__}: {exc}"
+                print("CHAT: OpenAI error", err_text)
                 should_downgrade = (
-                    not downgraded
+                    isinstance(exc, (PermissionDeniedError, NotFoundError))
+                    and not downgraded
                     and attempt_model != "gpt-4o-mini"
-                    and isinstance(exc, (PermissionDeniedError, NotFoundError))
                 )
                 if should_downgrade:
                     attempt_model = "gpt-4o-mini"
                     downgraded = True
                     print("CHAT: model_downgrade -> gpt-4o-mini")
                     continue
-                error_summary = f"{exc.__class__.__name__}: {exc}"
-            except Exception as exc:
-                print(f"CHAT: OpenAI error [{exc.__class__.__name__}] {exc}")
-                error_summary = f"{exc.__class__.__name__}: {exc}"
-            break
-
-        if strict:
-            raise ChatGenerationError(error_summary or "chat_generation_failed", fallback=False)
-
-        print("CHAT: FALLBACK TRIGGERED (lenient mode)")
-        fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
-        reply = self._fallback_reply(text, profile, fallback_hits)
-        return self._postprocess_reply(reply), True, error_summary
+                if strict:
+                    raise ChatGenerationError(err_text)
+                print("CHAT: FALLBACK TRIGGERED")
+                return self._postprocess_reply(build_fallback()), True, err_text
 
     # -------------------------
     # LLM prompting
