@@ -564,6 +564,38 @@ def api_conversation_message(convo_id: str):
     })
 
 
+@app.post("/api/conversations/<conv_id>/message")
+def conversations_message(conv_id: str):
+    payload = request.get_json(silent=True) or {}
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "missing text"}), 400
+
+    ctx = _resolve_user_context()
+    sid = core.ensure_session(ctx.get("session_id"))
+    ctx["session_id"] = sid
+    print(f"CONV {conv_id}: received user text len={len(text)}")
+
+    core.get_or_create_conversation(sid, conv_id)
+    core.append_message(sid, conv_id, role="user", text=text)
+
+    model = os.getenv("ASTRALINK_MODEL", "gpt-5.1")
+    reply = core.generate_reply(
+        sid=sid,
+        text=text,
+        conversation_id=conv_id,
+        model=model,
+    )
+    core.append_message(sid, conv_id, role="assistant", text=reply)
+
+    messages = core.get_messages(sid, conv_id, limit=50)
+    return jsonify({
+        "reply": reply,
+        "conversation_id": conv_id,
+        "messages": messages,
+    })
+
+
 @app.route("/api/conversations/<convo_id>/title", methods=["POST"])
 def api_conversation_rename(convo_id: str):
     ctx = _resolve_user_context()

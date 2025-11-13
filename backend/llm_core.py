@@ -29,6 +29,8 @@ class AstralinkCore:
         self.sessions: Dict[str, Dict] = {}
         # interviews: sid -> {"idx": int, "answers": []}
         self.interviews: Dict[str, Dict] = {}
+        # conversations: sid -> {conv_id: [messages]}
+        self.conversations: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
         # semantic memory chunks for lightweight RAG
         self.memory_chunks: Dict[str, List[Dict[str, Any]]] = {}
         self.default_credits = 5
@@ -80,6 +82,7 @@ class AstralinkCore:
             "created_at": datetime.utcnow().isoformat() + "Z"
         }
         self.memory_chunks[sid] = []
+        self.conversations.setdefault(sid, {})
         return sid, self.sessions[sid]["credits"]
 
     def get_session(self, sid: str) -> Optional[Dict]:
@@ -325,27 +328,81 @@ class AstralinkCore:
             return False, "Invalid session"
 
         history_source = history_override if history_override is not None else s["messages"]
-        history = self._history_for_prompt(history_source, limit=4)
-        memory_hits = self.search_memory_chunks(sid, message, top_k=6)
-        try:
-            reply = self._llm_reply(
-                profile=s["profile"],
-                history=history,
-                user_message=message,
-                snippets=memory_hits,
-            )
-        except Exception as exc:
-            print(f"[chat] Falling back to heuristic reply: {exc}")
-            fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, message, top_k=3)
-            reply = self._fallback_reply(message, s["profile"], fallback_hits)
-
-        reply = self._postprocess_reply(reply)
+        reply = self.generate_reply(
+            sid=sid,
+            text=message,
+            history_override=history_source,
+        )
 
         if history_override is None:
             ts = datetime.utcnow().isoformat() + "Z"
             s["messages"].append({"role": "user", "content": message, "ts": ts})
             s["messages"].append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat() + "Z"})
         return True, reply
+
+    def ensure_session(self, sid: Optional[str]) -> str:
+        if sid and sid in self.sessions:
+            return sid
+        new_sid, _ = self.new_session({})
+        return new_sid
+
+    def get_or_create_conversation(self, sid: str, conv_id: str) -> List[Dict[str, Any]]:
+        convs = self.conversations.setdefault(sid, {})
+        return convs.setdefault(conv_id, [])
+
+    def append_message(self, sid: str, conv_id: str, role: str, text: str) -> None:
+        conv = self.get_or_create_conversation(sid, conv_id)
+        conv.append({
+            "role": role,
+            "text": text,
+            "ts": datetime.utcnow().isoformat() + "Z",
+        })
+
+    def get_messages(self, sid: str, conv_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        conv = self.conversations.get(sid, {}).get(conv_id, [])
+        if limit <= 0:
+            return conv[:]
+        return conv[-limit:]
+
+    def _conversation_history(self, sid: str, conv_id: Optional[str]) -> List[Dict[str, Any]]:
+        if not conv_id:
+            return self.sessions.get(sid, {}).get("messages", [])
+        conv = self.conversations.get(sid, {}).get(conv_id, [])
+        formatted = []
+        for item in conv:
+            formatted.append({
+                "role": item.get("role"),
+                "content": item.get("text", ""),
+            })
+        return formatted
+
+    def generate_reply(
+        self,
+        sid: str,
+        text: str,
+        conversation_id: Optional[str] = None,
+        model: Optional[str] = None,
+        history_override: Optional[List[Dict]] = None,
+    ) -> str:
+        profile = self.sessions.get(sid, {}).get("profile", {})
+        history_source = history_override if history_override is not None else self._conversation_history(sid, conversation_id)
+        history = self._history_for_prompt(history_source, limit=6)
+        memory_hits = self.search_memory_chunks(sid, text, top_k=6)
+        target_model = model or self.model
+        print("CHAT: calling OpenAI model =", target_model)
+        try:
+            reply = self._llm_reply(
+                profile=profile,
+                history=history,
+                user_message=text,
+                snippets=memory_hits,
+            )
+            print("CHAT: OpenAI success")
+        except Exception as exc:
+            print(f"CHAT: FALLBACK TRIGGERED ({exc})")
+            fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
+            reply = self._fallback_reply(text, profile, fallback_hits)
+        return self._postprocess_reply(reply)
 
     # -------------------------
     # LLM prompting
