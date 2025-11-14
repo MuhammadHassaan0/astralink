@@ -64,7 +64,7 @@ def get_openai_client():
         return _client_singleton
     if _is_offline():
         raise RuntimeError("ASTRALINK_OFFLINE is true")
-    key = os.environ.get("OPENAI_API_KEY")
+    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
     if not key:
         raise RuntimeError("OPENAI_API_KEY missing")
     sdk = _detect_sdk()

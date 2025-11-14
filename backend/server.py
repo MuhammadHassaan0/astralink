@@ -1,7 +1,9 @@
 # server.py
 
 import csv
+import logging
 import os
+import traceback
 from datetime import datetime
 from typing import List
 
@@ -786,13 +788,14 @@ def api_diag_openai():
         print("CHAT: DIAG can_call=True error=None")
         return jsonify({"has_key": has_key, "can_call": True, "model": model, "offline": offline})
     except Exception as exc:
-        print(f"CHAT: DIAG can_call=False error={exc}")
+        logging.error("diag_openai failed:\n%s", traceback.format_exc())
+        print("CHAT: DIAG can_call=False error=init_failed")
         return jsonify({
             "has_key": has_key,
             "can_call": False,
             "model": model,
             "offline": offline,
-            "error": str(exc),
+            "error_code": "init_failed",
         })
 
 
