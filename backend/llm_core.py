@@ -1,5 +1,6 @@
 # llm_core.py
 import io
+import logging
 import math
 import os
 import re
@@ -7,26 +8,73 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from openai import (
-        OpenAI,
-        APIConnectionError,
-        APIError,
-        AuthenticationError,
-        BadRequestError,
-        NotFoundError,
-        PermissionDeniedError,
-        RateLimitError,
-    )  # type: ignore
-except Exception:
-    OpenAI = None  # type: ignore
-    APIConnectionError = APIError = AuthenticationError = BadRequestError = NotFoundError = PermissionDeniedError = RateLimitError = Exception  # type: ignore
-
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 STRICT_ERRORS = os.getenv("ASTRALINK_STRICT_ERRORS", "true").strip().lower() in ("1", "true", "yes", "on")
-OFFLINE = os.getenv("ASTRALINK_OFFLINE", "false").strip().lower() in ("1", "true", "yes", "on")
-DEFAULT_MODEL = os.getenv("ASTRALINK_MODEL", "gpt-4o-mini")
+
+APIConnectionError = APIError = AuthenticationError = BadRequestError = NotFoundError = PermissionDeniedError = RateLimitError = Exception  # type: ignore
+_SDK: Optional[str] = None
+_OpenAIClient = None
+_openai_legacy = None
+_client_singleton = None
+
+
+def _detect_sdk() -> str:
+    global _SDK, _OpenAIClient, _openai_legacy
+    if _SDK:
+        return _SDK
+    try:
+        from openai import (  # type: ignore
+            OpenAI as _Client,
+            APIConnectionError as _APIConnectionError,
+            APIError as _APIError,
+            AuthenticationError as _AuthenticationError,
+            BadRequestError as _BadRequestError,
+            NotFoundError as _NotFoundError,
+            PermissionDeniedError as _PermissionDeniedError,
+            RateLimitError as _RateLimitError,
+        )
+
+        _OpenAIClient = _Client
+        globals()["APIConnectionError"] = _APIConnectionError
+        globals()["APIError"] = _APIError
+        globals()["AuthenticationError"] = _AuthenticationError
+        globals()["BadRequestError"] = _BadRequestError
+        globals()["NotFoundError"] = _NotFoundError
+        globals()["PermissionDeniedError"] = _PermissionDeniedError
+        globals()["RateLimitError"] = _RateLimitError
+        _SDK = "v1"
+    except Exception:
+        import openai as _legacy  # type: ignore
+
+        _openai_legacy = _legacy
+        _SDK = "legacy"
+    return _SDK
+
+
+def _is_offline() -> bool:
+    return os.environ.get("ASTRALINK_OFFLINE", "").strip().lower() in ("1", "true", "yes")
+
+
+def _default_model() -> str:
+    return os.environ.get("ASTRALINK_MODEL", "gpt-4o-mini")
+
+
+def get_openai_client():
+    global _client_singleton
+    if _client_singleton:
+        return _client_singleton
+    if _is_offline():
+        raise RuntimeError("ASTRALINK_OFFLINE is true")
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY missing")
+    sdk = _detect_sdk()
+    if sdk == "v1":
+        _client_singleton = _OpenAIClient(api_key=key)  # type: ignore
+    else:
+        _openai_legacy.api_key = key  # type: ignore
+        _client_singleton = _openai_legacy  # type: ignore
+    logging.info("OPENAI client initialized via SDK=%s", sdk)
+    return _client_singleton
 
 
 class ChatGenerationError(Exception):
@@ -56,15 +104,8 @@ class AstralinkCore:
         # semantic memory chunks for lightweight RAG
         self.memory_chunks: Dict[str, List[Dict[str, Any]]] = {}
         self.default_credits = 5
-        self.model = DEFAULT_MODEL
+        self.model = _default_model()
         self.embedding_model = os.getenv("ASTRALINK_EMBED_MODEL", "text-embedding-3-small")
-        self._client = None
-        if OPENAI_API_KEY and OpenAI is not None:
-            try:
-                self._client = OpenAI(api_key=OPENAI_API_KEY)
-            except Exception:
-                self._client = None
-        self._openai_ready = self._client is not None
         self.transcribe_model = os.getenv("ASTRALINK_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
 
         # richer interview prompts to capture voice + context
@@ -161,7 +202,7 @@ class AstralinkCore:
             return []
 
         scored_embeddings = []
-        if self._openai_ready and self.embedding_model:
+        if self.embedding_model and not _is_offline():
             q_embeds = self._embed_texts([clean_query])
             if q_embeds:
                 q_vec = q_embeds[0]
@@ -195,7 +236,7 @@ class AstralinkCore:
         return trimmed.strip()
 
     def _embed_chunks(self, chunks: List[Dict[str, Any]]) -> None:
-        if not chunks or not self._openai_ready or not self.embedding_model:
+        if not chunks or not self.embedding_model or _is_offline():
             return
         targets = [chunk for chunk in chunks if chunk.get("text")]
         if not targets:
@@ -207,14 +248,21 @@ class AstralinkCore:
             chunk["embedding"] = emb
 
     def _embed_texts(self, texts: List[str]) -> Optional[List[List[float]]]:
-        if not texts or not self._openai_ready or not self.embedding_model:
+        if not texts or not self.embedding_model or _is_offline():
             return None
         try:
-            resp = self._client.embeddings.create(
+            client = get_openai_client()
+            if _detect_sdk() == "v1":
+                resp = client.embeddings.create(
+                    model=self.embedding_model,
+                    input=texts,
+                )
+                return [item.embedding for item in resp.data]
+            resp = client.Embedding.create(
                 model=self.embedding_model,
                 input=texts,
             )
-            return [item.embedding for item in resp.data]
+            return [item["embedding"] for item in resp["data"]]
         except Exception:
             return None
 
@@ -286,17 +334,25 @@ class AstralinkCore:
     def transcribe_audio(self, audio_bytes: bytes, filename: str = "voice.webm") -> str:
         if not audio_bytes:
             raise ValueError("Empty audio payload")
-        if not self._openai_ready:
-            raise RuntimeError("Transcription unavailable (missing OPENAI_API_KEY)")
+        if _is_offline():
+            raise RuntimeError("Transcription unavailable (offline)")
 
+        client = get_openai_client()
         safe_name = filename or "voice.webm"
         file_obj = io.BytesIO(audio_bytes)
         file_obj.name = safe_name
-        resp = self._client.audio.transcriptions.create(
-            file=file_obj,
-            model=self.transcribe_model,
-        )
-        text = getattr(resp, "text", "") or ""
+        if _detect_sdk() == "v1":
+            resp = client.audio.transcriptions.create(
+                file=file_obj,
+                model=self.transcribe_model,
+            )
+            text = getattr(resp, "text", "") or ""
+        else:
+            resp = client.Audio.transcribe(
+                model=self.transcribe_model,
+                file=file_obj,
+            )
+            text = (resp or {}).get("text", "")
         if not text:
             raise RuntimeError("Received empty transcription from OpenAI")
         return text.strip()
@@ -386,24 +442,6 @@ class AstralinkCore:
             return conv[:]
         return conv[-limit:]
 
-    def check_openai_health(self, model: Optional[str] = None) -> Tuple[bool, Optional[str]]:
-        if OFFLINE:
-            return False, "OFFLINE flag set"
-        if not self._openai_ready:
-            return False, "OpenAI client not initialized"
-        target_model = model or DEFAULT_MODEL
-        try:
-            self._client.chat.completions.create(
-                model=target_model,
-                messages=[
-                    {"role": "system", "content": "diagnostic ping"},
-                    {"role": "user", "content": "ping"},
-                ],
-                max_tokens=5,
-            )
-            return True, None
-        except Exception as exc:
-            return False, f"{exc.__class__.__name__}: {exc}"
 
     def _conversation_history(self, sid: str, conv_id: Optional[str]) -> List[Dict[str, Any]]:
         if not conv_id:
@@ -435,11 +473,11 @@ class AstralinkCore:
             fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
             return self._fallback_reply(text, profile, fallback_hits)
 
-        if OFFLINE:
+        if _is_offline():
             print("CHAT: OFFLINE=true → forcing fallback")
             return self._postprocess_reply(build_fallback()), True, "OFFLINE"
 
-        attempt_model = model or self.model
+        attempt_model = model or self.model or _default_model()
         downgraded = False
 
         while True:
@@ -454,16 +492,7 @@ class AstralinkCore:
                 )
                 print(f"CHAT: OpenAI success model={attempt_model}")
                 return self._postprocess_reply(reply), False, None
-            except (
-                AuthenticationError,
-                PermissionDeniedError,
-                NotFoundError,
-                RateLimitError,
-                BadRequestError,
-                APIConnectionError,
-                APIError,
-                Exception,
-            ) as exc:
+            except (AuthenticationError, PermissionDeniedError, NotFoundError, RateLimitError, BadRequestError, APIConnectionError, APIError) as exc:
                 err_text = f"{exc.__class__.__name__}: {exc}"
                 print("CHAT: OpenAI error", err_text)
                 should_downgrade = (
@@ -476,6 +505,13 @@ class AstralinkCore:
                     downgraded = True
                     print("CHAT: model_downgrade -> gpt-4o-mini")
                     continue
+                if strict:
+                    raise ChatGenerationError(err_text)
+                print("CHAT: FALLBACK TRIGGERED")
+                return self._postprocess_reply(build_fallback()), True, err_text
+            except Exception as exc:
+                err_text = f"{exc.__class__.__name__}: {exc}"
+                print("CHAT: OpenAI error", err_text)
                 if strict:
                     raise ChatGenerationError(err_text)
                 print("CHAT: FALLBACK TRIGGERED")
@@ -581,10 +617,8 @@ class AstralinkCore:
         snippets: List[str],
         model: Optional[str] = None,
     ) -> str:
-        if not self._openai_ready:
-            raise RuntimeError("OpenAI API key missing")
-
-        target_model = model or self.model
+        client = get_openai_client()
+        target_model = model or self.model or _default_model()
         system_text = self._system_prompt(profile, snippets)
         messages = [{"role": "system", "content": system_text}]
         if snippets:
@@ -597,13 +631,22 @@ class AstralinkCore:
         messages.extend(history)
         messages.append({"role": "user", "content": user_message.strip()})
 
-        resp = self._client.chat.completions.create(
-            model=target_model,
-            messages=messages,
-            temperature=0.65,
-            max_tokens=320,
-        )
-        reply = (resp.choices[0].message.content or "").strip()
+        if _detect_sdk() == "v1":
+            resp = client.chat.completions.create(
+                model=target_model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=512,
+            )
+            reply = (resp.choices[0].message.content or "").strip()
+        else:
+            resp = client.ChatCompletion.create(
+                model=target_model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=512,
+            )
+            reply = (resp["choices"][0]["message"]["content"] or "").strip()
         if not reply:
             raise RuntimeError("Empty response")
         return reply

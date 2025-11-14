@@ -16,11 +16,12 @@ except ImportError:
 
 try:  # Allow running as a package or standalone module.
     from .llm_core import AstralinkCore, ChatGenerationError
-    from . import auth_store, conversation_store
+    from . import auth_store, conversation_store, llm_core as llm_core_module
 except ImportError:  # pragma: no cover
     from llm_core import AstralinkCore, ChatGenerationError  # type: ignore
     import auth_store  # type: ignore
     import conversation_store  # type: ignore
+    import llm_core as llm_core_module  # type: ignore
 
 
 # -----------------------------------------------------------------------------
@@ -755,22 +756,44 @@ def api_interview_answer():
 @app.get("/diag/openai")
 @app.get("/api/diag/openai")
 def api_diag_openai():
-    has_key = bool(os.getenv("OPENAI_API_KEY"))
-    configured_model = os.getenv("ASTRALINK_MODEL")
-    model_label = configured_model or "(default)"
-    can_call = False
-    error_text = None
-    if has_key:
-        can_call, error_text = core.check_openai_health(configured_model)
-    else:
-        error_text = "OPENAI_API_KEY missing"
-    print(f"CHAT: DIAG can_call={can_call} error={error_text}")
-    return jsonify({
-        "has_key": has_key,
-        "model": model_label,
-        "can_call": can_call,
-        "error": error_text,
-    })
+    has_key = bool(os.environ.get("OPENAI_API_KEY"))
+    model = os.environ.get("ASTRALINK_MODEL", "gpt-4o-mini")
+    offline = os.environ.get("ASTRALINK_OFFLINE", "")
+    try:
+        client = llm_core_module.get_openai_client()
+        if llm_core_module._detect_sdk() == "v1":
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "ping"},
+                    {"role": "user", "content": "ping"},
+                ],
+                max_tokens=1,
+                temperature=0,
+            )
+            _ = resp.choices[0].message.content
+        else:
+            resp = client.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "ping"},
+                    {"role": "user", "content": "ping"},
+                ],
+                max_tokens=1,
+                temperature=0,
+            )
+            _ = resp["choices"][0]["message"]["content"]
+        print("CHAT: DIAG can_call=True error=None")
+        return jsonify({"has_key": has_key, "can_call": True, "model": model, "offline": offline})
+    except Exception as exc:
+        print(f"CHAT: DIAG can_call=False error={exc}")
+        return jsonify({
+            "has_key": has_key,
+            "can_call": False,
+            "model": model,
+            "offline": offline,
+            "error": str(exc),
+        })
 
 
 @app.route("/api/interview/transcribe", methods=["POST"])
