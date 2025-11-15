@@ -55,7 +55,7 @@ def _is_offline() -> bool:
 
 
 def _default_model() -> str:
-    return os.environ.get("ASTRALINK_MODEL", "gpt-4o-mini")
+    return os.environ.get("ASTRALINK_MODEL", "gpt-5.1")
 
 
 def get_openai_client():
