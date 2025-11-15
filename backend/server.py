@@ -487,7 +487,7 @@ def api_chat():
     session_obj = core.get_session(sid)
     history = session_obj["messages"] if session_obj else []
     try:
-        reply, used_fallback, error_summary = core.generate_reply(
+        reply_text, used_fallback, error_summary, model_used = core.generate_reply(
             sid=sid,
             text=message,
             history_override=history,
@@ -497,25 +497,27 @@ def api_chat():
         resp = jsonify({"error": str(exc), "fallback": False})
         resp.status_code = 502
         resp.headers["X-Astralink-Fallback"] = "false"
+        resp.headers["X-Astralink-Model-Used"] = ""
         return resp
 
     if session_obj is not None:
         ts = datetime.utcnow().isoformat() + "Z"
         session_obj["messages"].append({"role": "user", "content": message, "ts": ts})
-        session_obj["messages"].append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat() + "Z"})
+        session_obj["messages"].append({"role": "assistant", "content": reply_text, "ts": datetime.utcnow().isoformat() + "Z"})
 
     body = {
         "ok": True,
         "session": sid,
         "session_id": sid,
-        "reply": reply,
+        "reply": reply_text,
+        "model_used": model_used,
+        "fallback": used_fallback,
     }
-    if used_fallback:
-        body["fallback"] = True
-        if error_summary:
-            body["error"] = error_summary
+    if used_fallback and error_summary:
+        body["error"] = error_summary
     resp = jsonify(body)
     resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+    resp.headers["X-Astralink-Model-Used"] = model_used
     return resp
 
 
@@ -583,7 +585,7 @@ def api_conversation_message(convo_id: str):
     if ctx["email"]:
         sid = _ensure_session_for_email(ctx["email"])
     try:
-        reply, used_fallback, error_summary = core.generate_reply(
+        reply_text, used_fallback, error_summary, model_used = core.generate_reply(
             sid=sid,
             text=text,
             history_override=history,
@@ -593,18 +595,20 @@ def api_conversation_message(convo_id: str):
         resp = jsonify({"error": str(exc), "fallback": False})
         resp.status_code = 502
         resp.headers["X-Astralink-Fallback"] = "false"
+        resp.headers["X-Astralink-Model-Used"] = ""
         return resp
 
-    if not conversation_store.append_message(ctx["user_key"], convo_id, "assistant", reply):
+    if not conversation_store.append_message(ctx["user_key"], convo_id, "assistant", reply_text):
         resp = jsonify({"ok": False, "error": "conversation_not_found"})
         resp.status_code = 404
         resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+        resp.headers["X-Astralink-Model-Used"] = model_used
         return resp
 
     updated = conversation_store.get_conversation(ctx["user_key"], convo_id) or convo
     body = {
         "ok": True,
-        "reply": reply,
+        "reply": reply_text,
         "session_id": sid,
         "messages": updated.get("messages", []),
         "conversation": {
@@ -613,14 +617,15 @@ def api_conversation_message(convo_id: str):
             "updated_at": updated.get("updated_at"),
             "created_at": updated.get("created_at"),
             "message_count": updated.get("message_count", len(updated.get("messages", []))),
-        }
+        },
+        "model_used": model_used,
+        "fallback": used_fallback,
     }
-    if used_fallback:
-        body["fallback"] = True
-        if error_summary:
-            body["error"] = error_summary
+    if used_fallback and error_summary:
+        body["error"] = error_summary
     resp = jsonify(body)
     resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+    resp.headers["X-Astralink-Model-Used"] = model_used
     return resp
 
 
@@ -644,7 +649,7 @@ def conversations_message(conv_id: str):
     core.append_message(sid, conv_id, role="user", text=text)
 
     try:
-        reply, used_fallback, error_summary = core.generate_reply(
+        reply_text, used_fallback, error_summary, model_used = core.generate_reply(
             sid=sid,
             text=text,
             conversation_id=conv_id,
@@ -654,22 +659,24 @@ def conversations_message(conv_id: str):
         resp = jsonify({"error": str(exc), "fallback": False})
         resp.status_code = 502
         resp.headers["X-Astralink-Fallback"] = "false"
+        resp.headers["X-Astralink-Model-Used"] = ""
         return resp
 
-    core.append_message(sid, conv_id, role="assistant", text=reply)
+    core.append_message(sid, conv_id, role="assistant", text=reply_text)
 
     messages = core.get_messages(sid, conv_id, limit=50)
     body = {
-        "reply": reply,
+        "reply": reply_text,
         "conversation_id": conv_id,
         "messages": messages,
+        "model_used": model_used,
+        "fallback": used_fallback,
     }
-    if used_fallback:
-        body["fallback"] = True
-        if error_summary:
-            body["error"] = error_summary
+    if used_fallback and error_summary:
+        body["error"] = error_summary
     resp = jsonify(body)
     resp.headers["X-Astralink-Fallback"] = "true" if used_fallback else "false"
+    resp.headers["X-Astralink-Model-Used"] = model_used
     return resp
 
 
@@ -759,44 +766,45 @@ def api_interview_answer():
 @app.get("/api/diag/openai")
 def api_diag_openai():
     has_key = bool(os.environ.get("OPENAI_API_KEY"))
-    model = os.environ.get("ASTRALINK_MODEL", "gpt-4o-mini")
     offline = os.environ.get("ASTRALINK_OFFLINE", "")
+    out = {
+        "has_key": has_key,
+        "model": llm_core_module.configured_model(),
+        "fallback": llm_core_module.fallback_model(),
+        "offline": offline,
+    }
     try:
-        client = llm_core_module.get_openai_client()
-        if llm_core_module._detect_sdk() == "v1":
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "ping"},
-                    {"role": "user", "content": "ping"},
-                ],
-                max_tokens=1,
-                temperature=0,
-            )
-            _ = resp.choices[0].message.content
-        else:
-            resp = client.ChatCompletion.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "ping"},
-                    {"role": "user", "content": "ping"},
-                ],
-                max_tokens=1,
-                temperature=0,
-            )
-            _ = resp["choices"][0]["message"]["content"]
-        print("CHAT: DIAG can_call=True error=None")
-        return jsonify({"has_key": has_key, "can_call": True, "model": model, "offline": offline})
+        client = llm_core_module._openai_client()
     except Exception as exc:
-        logging.error("diag_openai failed:\n%s", traceback.format_exc())
-        print("CHAT: DIAG can_call=False error=init_failed")
-        return jsonify({
-            "has_key": has_key,
+        logging.error("diag_openai init failed:\n%s", traceback.format_exc())
+        out.update({
             "can_call": False,
-            "model": model,
-            "offline": offline,
             "error_code": "init_failed",
+            "error": f"{exc.__class__.__name__}: {exc}",
         })
+        return jsonify(out)
+
+    try:
+        resp = client.chat.completions.create(
+            model=out["model"],
+            messages=[{"role": "user", "content": "ping"}],
+            temperature=0,
+            max_tokens=1,
+        )
+        _ = resp.choices[0].message.content
+        out.update({"can_call": True, "model_used": out["model"]})
+    except Exception as exc:
+        logging.error("diag_openai call failed:\n%s", traceback.format_exc())
+        msg = f"{exc.__class__.__name__}: {exc}"
+        lower = msg.lower()
+        if "does not exist" in lower or "not found" in lower or "unknown model" in lower:
+            code = "bad_model"
+        elif "invalid api key" in lower or "unauthorized" in lower or "401" in lower:
+            code = "bad_key"
+        else:
+            code = "call_failed"
+        out.update({"can_call": False, "error_code": code, "error": msg})
+    return jsonify(out)
 
 
 @app.route("/api/interview/transcribe", methods=["POST"])
