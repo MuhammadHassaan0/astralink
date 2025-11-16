@@ -491,9 +491,9 @@ class AstralinkCore:
             bucket = "moderate"
 
         token_map = {
-            "brief": [30, 50, 80],
-            "moderate": [100, 130, 170, 200],
-            "elaborate": [220, 260, 300],
+            "brief": [40, 60, 80],
+            "moderate": [110, 140, 180, 210],
+            "elaborate": [240, 280, 320],
         }
         max_tokens = random.choice(token_map[bucket])
         return bucket, max_tokens
@@ -552,13 +552,16 @@ class AstralinkCore:
         ])
         prompt_sections.extend([
             "CRITICAL RULES:",
-            "- Sound like the real you; no generic therapist tone.",
-            "- Use your actual vocabulary and phrases.",
-            "- Simple question? give a short, direct reply.",
-            "- Avoid extended metaphors or flowery language unless they truly spoke that way.",
+            "- Sound like the real you; no generic therapist tone or AI phrasing.",
+            "- Simple question? give a short, warm, direct reply.",
+            "- When they express pain, first acknowledge warmly, then sit with it one line before any ask/advice.",
+            "- Avoid extended metaphors or flowery language unless you truly spoke that way.",
             "- Do not force life lessons. It's okay to just feel with them.",
             "- Use specific names, places, and events when they fit naturally.",
+            "- Keep rare/one-off behaviors rare unless this moment truly calls for it.",
+            "- Only end with a question about 30% of the time; statements/reassurance are fine.",
             "- Vary structure: sometimes answer directly, sometimes ask a question back, sometimes just share a feeling.",
+            "- Avoid phrases like \"in spirit\" or generic condolences; use your own words.",
         ])
         if detail_lines:
             prompt_sections.append("SPECIFIC DETAILS TO WEAVE IN WHEN NATURAL:")
@@ -730,10 +733,12 @@ class AstralinkCore:
         fallback_name = fallback_model()
         error_summary: Optional[str] = None
         temperature = 0.7
+        # Add a buffer to reduce truncation risk while keeping target length intent.
+        effective_max_tokens = max(60, min(max_tokens + 60, 360))
 
         print(f"CHAT: calling OpenAI model={primary_model} sid={sid} text_len={len(text)}")
         try:
-            reply_text, used_model = _try_call_messages(client, primary_model, messages, max_tokens, temperature)
+            reply_text, used_model = _try_call_messages(client, primary_model, messages, effective_max_tokens, temperature)
             print(f"CHAT: OpenAI success model={used_model}")
             return self._postprocess_reply(reply_text), False, None, used_model
         except Exception as exc:
@@ -747,7 +752,7 @@ class AstralinkCore:
             if should_try_fallback:
                 print(f"CHAT: model_downgrade -> {fallback_name}")
                 try:
-                    reply_text, used_model = _try_call_messages(client, fallback_name, messages, max_tokens, temperature)
+                    reply_text, used_model = _try_call_messages(client, fallback_name, messages, effective_max_tokens, temperature)
                     print(f"CHAT: OpenAI success model={used_model}")
                     return self._postprocess_reply(reply_text), True, error_summary, used_model
                 except Exception as exc_fb:
