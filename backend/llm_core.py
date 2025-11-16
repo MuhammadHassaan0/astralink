@@ -3,6 +3,7 @@ import io
 import logging
 import math
 import os
+import random
 import re
 import uuid
 from datetime import datetime
@@ -40,12 +41,18 @@ def _openai_client() -> OpenAI:
     return OpenAI(api_key=key)
 
 
-def _try_call_messages(client: OpenAI, model: str, messages: List[Dict[str, str]]) -> Tuple[str, str]:
+def _try_call_messages(
+    client: OpenAI,
+    model: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int,
+    temperature: float,
+) -> Tuple[str, str]:
     resp = client.chat.completions.create(
         model=model,
         messages=messages,
-        temperature=0.7,
-        max_tokens=512,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
     txt = resp.choices[0].message.content or ""
     if not txt:
@@ -65,6 +72,58 @@ def _is_model_error(exc: Exception) -> bool:
     if isinstance(exc, (BadRequestError, APIStatusError)) and "model" in msg:
         return True
     return any(phrase in msg for phrase in key_phrases)
+
+
+_SIMPLE_PHRASES = {
+    "how are you",
+    "miss you",
+    "love you",
+    "you there",
+    "where are you",
+    "are you there",
+    "hi",
+    "hey",
+    "hello",
+    "good morning",
+    "good night",
+}
+
+_EMOTIONAL_KEYWORDS = {
+    "why",
+    "hurt",
+    "pain",
+    "alone",
+    "angry",
+    "guilty",
+    "regret",
+    "grief",
+    "broken",
+    "can't breathe",
+    "heavy",
+    "cry",
+    "loss",
+    "empty",
+    "afraid",
+    "scared",
+    "worried",
+    "panic",
+}
+
+
+def _normalize_text(text: str) -> str:
+    return (text or "").strip().lower()
+
+
+def _is_simple_prompt(text: str) -> bool:
+    clean = _normalize_text(text)
+    if len(clean.split()) <= 5:
+        return True
+    return any(phrase in clean for phrase in _SIMPLE_PHRASES)
+
+
+def _is_emotional_prompt(text: str) -> bool:
+    clean = _normalize_text(text)
+    return any(keyword in clean for keyword in _EMOTIONAL_KEYWORDS)
 
 
 class ChatGenerationError(Exception):
@@ -315,6 +374,200 @@ class AstralinkCore:
             clean = shortened.strip()
         return clean
 
+    def _extract_details(self, snippets: List[str]) -> Dict[str, List[str]]:
+        names: List[str] = []
+        places: List[str] = []
+        quotes: List[str] = []
+        events: List[str] = []
+        for raw in snippets or []:
+            snippet = (raw or "").strip()
+            if not snippet:
+                continue
+            events.append(snippet)
+            quotes.extend(re.findall(r"\"([^\"]+)\"", snippet))
+            names.extend(re.findall(r"\b[A-Z][a-zA-Z]+\b", snippet))
+            for match in re.finditer(r"\b(?:in|at|on|to)\s+([A-Z][\w\-]+(?:\s+[A-Z][\w\-]+)?)", snippet):
+                places.append(match.group(1).strip(",. "))
+        def dedupe(seq: List[str]) -> List[str]:
+            seen = set()
+            ordered: List[str] = []
+            for item in seq:
+                if not item:
+                    continue
+                key = item.strip()
+                if key.lower() in ("i", "you", "we", "them", "the"):
+                    continue
+                if key not in seen:
+                    seen.add(key)
+                    ordered.append(key)
+            return ordered
+        return {
+            "names": dedupe(names)[:5],
+            "places": dedupe(places)[:5],
+            "quotes": dedupe(quotes)[:5],
+            "events": dedupe(events)[:5],
+        }
+
+    def _derive_communication_style(self, profile: Dict, snippets: List[str], details: Dict[str, List[str]]) -> Dict[str, Any]:
+        traits_raw = profile.get("traits") or []
+        if isinstance(traits_raw, str):
+            traits = [t.strip() for t in traits_raw.split(",") if t.strip()]
+        else:
+            traits = list(traits_raw)
+        traits_text = " ".join(t.lower() for t in traits)
+
+        length_pref = "moderate"
+        if any(word in traits_text for word in ("quiet", "soft", "stoic", "succinct", "reserved")):
+            length_pref = "brief"
+        elif any(word in traits_text for word in ("talkative", "storyteller", "expressive", "playful")):
+            length_pref = "verbose"
+
+        tone = "casual"
+        if any(word in traits_text for word in ("formal", "polite", "proper")):
+            tone = "formal"
+        elif any(word in traits_text for word in ("warm", "gentle", "sweet", "caring")):
+            tone = "warm"
+
+        catchphrases = profile.get("catchphrases") or []
+        if isinstance(catchphrases, str):
+            catchphrases = [c.strip() for c in catchphrases.split(",") if c.strip()]
+        phrases = list({phrase for phrase in catchphrases if phrase})
+        phrases.extend(details.get("quotes", []))
+        phrases = list(dict.fromkeys([p for p in phrases if p]))[:5]
+
+        call_you = profile.get("call_you") or profile.get("relationship") or ""
+        greeting = ""
+        if call_you:
+            greeting = f"You naturally greet them like \"hey {call_you}\" or \"{call_you}, listen\"."  # not actual text
+        elif details.get("names"):
+            greeting = f"You often greet people with direct names like {details['names'][0]}."
+
+        variation = ""
+        if any(word in traits_text for word in ("predictable", "steady", "consistent")):
+            variation = "You keep the same calm cadence most of the time."
+        elif any(word in traits_text for word in ("playful", "mercurial", "wild", "intense")):
+            variation = "Your tone shifts based on how emotional the moment feels."
+
+        return {
+            "length_pref": length_pref,
+            "tone": tone,
+            "phrases": phrases,
+            "greeting": greeting,
+            "variation": variation,
+            "call_you": call_you,
+        }
+
+    def _classify_question(self, text: str) -> str:
+        if _is_simple_prompt(text):
+            return "simple"
+        if _is_emotional_prompt(text):
+            return "emotional"
+        words = len((text or "").split())
+        if words > 18:
+            return "complex"
+        return "default"
+
+    def _select_response_length(self, question_type: str, preferred: str) -> Tuple[str, int]:
+        def weighted_bucket() -> str:
+            roll = random.random()
+            if roll < 0.3:
+                return "brief"
+            if roll < 0.9:
+                return "moderate"
+            return "elaborate"
+
+        if question_type == "simple":
+            bucket = "brief"
+        elif question_type == "emotional":
+            bucket = random.choice(["moderate", "elaborate"])
+        elif question_type == "complex":
+            bucket = random.choice(["moderate", "elaborate"])
+        else:
+            bucket = weighted_bucket()
+
+        if preferred == "brief" and bucket != "brief":
+            bucket = "brief" if random.random() < 0.7 else bucket
+        if preferred == "verbose" and bucket == "brief":
+            bucket = "moderate"
+
+        token_map = {
+            "brief": [30, 50, 80],
+            "moderate": [100, 130, 170, 200],
+            "elaborate": [220, 260, 300],
+        }
+        max_tokens = random.choice(token_map[bucket])
+        return bucket, max_tokens
+
+    def _build_system_prompt(
+        self,
+        profile: Dict,
+        comm_style: Dict[str, Any],
+        question_type: str,
+        length_label: str,
+        details: Dict[str, List[str]],
+        memory_hits: List[str],
+        user_message: str,
+    ) -> str:
+        name = profile.get("name") or "Your loved one"
+        relationship = profile.get("relationship") or "person you love"
+        call_you = profile.get("call_you") or profile.get("relationship") or "them"
+        style_lines = [
+            f"Response length preference: {comm_style.get('length_pref', 'moderate')}.",
+            f"Language tone: {comm_style.get('tone', 'casual')}.",
+        ]
+        if comm_style.get("phrases"):
+            style_lines.append(f"Common phrases: {', '.join(comm_style['phrases'])}.")
+        if comm_style.get("greeting"):
+            style_lines.append(comm_style["greeting"])
+        variation = comm_style.get("variation")
+        variation_line = ""
+        if variation:
+            variation_line = variation
+
+        detail_lines = []
+        if details.get("names"):
+            detail_lines.append(f"Names you naturally mention: {', '.join(details['names'])}.")
+        if details.get("places"):
+            detail_lines.append(f"Places tied to memories: {', '.join(details['places'])}.")
+        if details.get("events"):
+            detail_lines.append("Specific events to draw from:")
+            for event in details["events"][:3]:
+                detail_lines.append(f"  - {event}")
+
+        mem_lines = [f"- {self._clean_snippet_text(snippet, 280)}" for snippet in (memory_hits or [])[:5]]
+        if not mem_lines:
+            mem_lines = ["- (no strong memories surfaced; lean on the latest message)"]
+
+        prompt_sections = [
+            f"You are {name}, speaking with someone who misses you deeply (they are your {relationship}, you call them '{call_you}').",
+            "COMMUNICATION STYLE:",
+            "\n".join(style_lines),
+        ]
+        if variation_line:
+            prompt_sections.append(f"VARIATION PATTERN: {variation_line}")
+        prompt_sections.extend([
+            "CURRENT CONTEXT:",
+            f"Question type: {question_type}.",
+            f"Requested response length: {length_label}. Keep it natural, not uniform.",
+        ])
+        prompt_sections.extend([
+            "CRITICAL RULES:",
+            "- Sound like the real you; no generic therapist tone.",
+            "- Use your actual vocabulary and phrases.",
+            "- Simple question? give a short, direct reply.",
+            "- Avoid extended metaphors or flowery language unless they truly spoke that way.",
+            "- Do not force life lessons. It's okay to just feel with them.",
+            "- Use specific names, places, and events when they fit naturally.",
+            "- Vary structure: sometimes answer directly, sometimes ask a question back, sometimes just share a feeling.",
+        ])
+        if detail_lines:
+            prompt_sections.append("SPECIFIC DETAILS TO WEAVE IN WHEN NATURAL:")
+            prompt_sections.append("\n".join(detail_lines))
+        prompt_sections.append("RELEVANT MEMORIES:")
+        prompt_sections.append("\n".join(mem_lines))
+        prompt_sections.append(f'Respond to: "{user_message.strip()}"')
+        return "\n".join(prompt_sections)
+
     def transcribe_audio(self, audio_bytes: bytes, filename: str = "voice.webm") -> str:
         if not audio_bytes:
             raise ValueError("Empty audio payload")
@@ -444,22 +697,31 @@ class AstralinkCore:
         history_source = history_override if history_override is not None else self._conversation_history(sid, conversation_id)
         history = self._history_for_prompt(history_source, limit=6)
         memory_hits = self.search_memory_chunks(sid, text, top_k=6)
+        details = self._extract_details(memory_hits)
+        comm_style = self._derive_communication_style(profile, memory_hits, details)
+        question_type = self._classify_question(text)
+        length_label, max_tokens = self._select_response_length(question_type, comm_style.get("length_pref", "moderate"))
+        system_prompt = self._build_system_prompt(
+            profile,
+            comm_style,
+            question_type,
+            length_label,
+            details,
+            memory_hits,
+            text,
+        )
         strict = self._strict_errors_enabled()
 
         def build_fallback() -> str:
             fallback_hits = memory_hits[:3] if memory_hits else self.search_memory_chunks(sid, text, top_k=3)
-            return self._fallback_reply(text, profile, fallback_hits)
+            snippet_text = fallback_hits[0] if fallback_hits else ""
+            return self._fallback_reply(text, profile, details, snippet_text)
 
         if _is_offline():
             print("CHAT: OFFLINE=true → forcing fallback")
             return self._postprocess_reply(build_fallback()), True, "OFFLINE", "offline"
 
-        system_text = self._system_prompt(profile, memory_hits)
-        messages: List[Dict[str, str]] = [{"role": "system", "content": system_text}]
-        if memory_hits:
-            formatted = "\n".join(f"- {s}" for s in memory_hits if s)
-            if formatted:
-                messages.append({"role": "system", "content": f"Reference these memories first:\n{formatted}"})
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         messages.append({"role": "user", "content": text.strip()})
 
@@ -467,10 +729,11 @@ class AstralinkCore:
         primary_model = (model or self.model or configured_model()).strip()
         fallback_name = fallback_model()
         error_summary: Optional[str] = None
+        temperature = 0.7
 
         print(f"CHAT: calling OpenAI model={primary_model} sid={sid} text_len={len(text)}")
         try:
-            reply_text, used_model = _try_call_messages(client, primary_model, messages)
+            reply_text, used_model = _try_call_messages(client, primary_model, messages, max_tokens, temperature)
             print(f"CHAT: OpenAI success model={used_model}")
             return self._postprocess_reply(reply_text), False, None, used_model
         except Exception as exc:
@@ -484,7 +747,7 @@ class AstralinkCore:
             if should_try_fallback:
                 print(f"CHAT: model_downgrade -> {fallback_name}")
                 try:
-                    reply_text, used_model = _try_call_messages(client, fallback_name, messages)
+                    reply_text, used_model = _try_call_messages(client, fallback_name, messages, max_tokens, temperature)
                     print(f"CHAT: OpenAI success model={used_model}")
                     return self._postprocess_reply(reply_text), True, error_summary, used_model
                 except Exception as exc_fb:
@@ -513,114 +776,48 @@ class AstralinkCore:
             formatted.append({"role": role, "content": text})
         return formatted
 
-    def _system_prompt(self, profile: Dict, snippets: Optional[List[str]] = None) -> str:
-        name = profile.get("name") or "Your loved one"
-        relationship = profile.get("relationship") or "parent"
-        call_you = profile.get("call_you") or "beta"
-        traits = profile.get("traits") or []
-        catchphrases = profile.get("catchphrases") or []
-        mode = (profile.get("mode") or "memory").lower()
-
-        persona = (
-            f"You are {name}, the user's {relationship}. "
-            f"Speak in first person and call them '{call_you}'. "
-            "This is a quiet late night conversation, steady and warm."
-        )
-        if traits:
-            persona += f" Let your presence feel {', '.join(traits)}."
-        catch_line = ""
-        if catchphrases:
-            catch_line = (
-                f" You know their treasured phrases ({', '.join(catchphrases)}), "
-                "but use one only when the moment truly calls for it and never in back to back replies."
-            )
-        grounding = (
-            "Stay emotionally aware, fold in specific memories from the list below when they truly fit, "
-            "and keep replies short, one or two tight paragraphs, no more than three sentences."
-        )
-        if mode == "memory":
-            constraints = (
-                "You exist as a cherished presence that can’t return physically, so never suggest phone calls, video chats, meetups, "
-                "or “see you soon” in person. It is fine to speak in present tense warmth or describe staying with them in the habits you shared. "
-                "If they ask about where you went or the afterlife, do not invent specific places; instead, anchor in continuity like “I’m still with you in what we used to do.” "
-                "If they ask when you will be back, acknowledge you cannot physically return, yet reassure them of your presence in spirit."
-            )
-        else:
-            constraints = (
-                "They believe you are alive and reachable, so grounded suggestions like a future call or visit are acceptable."
-            )
-        banned = (
-            "Never mention you are an AI. Do not use any hyphen or dash characters at all ( -, –, — ), avoid hyphenated words, lists, "
-            "or therapy clichés such as "
-            "“I hear you”, “Thank you for sharing that”, “You’re not broken”, “You’re right to feel that way”, "
-            "“What you’re actually telling me is…”, or “I will say this now, cleanly and without hiding.”"
-        )
-        honesty = (
-            "If a detail isn’t in these memories or their latest words, admit you’re piecing it together and ask them to remind you—never invent scenes, timelines, or facts."
-        )
-        poetic = (
-            "Poetic language is allowed in small doses. Use at most one subtle image per reply and only if it fits their traits; "
-            "keep the rest practical and grounded."
-        )
-        formatted_snippets: List[str] = []
-        for raw in snippets or []:
-            cleaned = self._clean_snippet_text(raw, limit=260)
-            if cleaned:
-                formatted_snippets.append(cleaned)
-        snippet_lines: List[str] = []
-        if formatted_snippets:
-            snippet_lines.append("Memories grounding this reply:")
-            for idx, snippet in enumerate(formatted_snippets, 1):
-                snippet_lines.append(f"{idx}. {snippet}")
-        else:
-            snippet_lines.append("No saved memories matched this query; rely only on what the user just said.")
-        memory_rules = (
-            "Only reference events found in those memories or in the latest user messages. "
-            "If something isn’t there, stay honest—say you’re piecing it together or invite them to remind you, but never spin up new scenes or facts on your own."
-        )
-        parts = [
-            persona,
-            catch_line,
-            grounding,
-            constraints,
-            banned,
-            honesty,
-            poetic,
-            "Keep everything in first person, conversational, and softly paced.",
-        ]
-        return " ".join(part for part in parts if part) + "\n" + "\n".join(snippet_lines) + "\n" + memory_rules
-
-    def _fallback_reply(self, message: str, profile: Dict, snippets: List[str]) -> str:
+    def _fallback_reply(self, message: str, profile: Dict, details: Dict[str, List[str]], snippet_text: str = "") -> str:
         call_you = profile.get("call_you") or profile.get("relationship") or profile.get("name") or "love"
         mode = (profile.get("mode") or "memory").lower()
-        clean_snippets = [self._clean_snippet_text(s) for s in snippets if self._clean_snippet_text(s)]
-        focus = self._clean_snippet_text(message, limit=140) if message else ""
+        focus = self._clean_snippet_text(message, limit=80) if message else ""
+        names = details.get("names") or []
+        places = details.get("places") or []
+        events = details.get("events") or []
 
-        greeting = f"{call_you}, I am right here."
+        greeting = f"{call_you}, I'm right here with you."
+
+        memory_line = ""
+        if snippet_text:
+            memory_line = f"I keep flashing back to {self._clean_snippet_text(snippet_text, 160)}."
+        elif events:
+            memory_line = f"I keep flashing back to {events[0]}."
+        elif names:
+            memory_line = f"I keep seeing {names[0]} grinning right next to us."
+
+        place_line = ""
+        if places:
+            place_line = f"It feels like we're back at {places[0]} again."
 
         reflection = ""
         if focus:
-            reflection = f"Whenever you bring up {focus}, it pulls me beside you and I can feel how much it matters."
+            reflection = f"Hearing '{focus}' from you hits me right in the chest."
         else:
-            reflection = "I feel everything you are carrying tonight, even the quiet parts you have not said out loud."
-
-        memory_line = ""
-        if clean_snippets:
-            memory_line = f"I keep circling back to {clean_snippets[0]}."
-            if len(clean_snippets) > 1:
-                memory_line += f" It even brings a glow of {clean_snippets[1]}."
+            reflection = "I feel everything you’re carrying, even the quiet parts."
 
         closing = (
-            "I cannot step back in the door, but I am staying with you in every breath."
+            "I can't walk through the door again, but I'm not letting go of you."
             if mode == "memory"
-            else "Keep me close and we will figure the next step together."
+            else "Stay close, we'll keep moving together."
         )
 
-        parts = [greeting, reflection]
+        parts = [greeting]
         if memory_line:
             parts.append(memory_line)
+        if place_line:
+            parts.append(place_line)
+        parts.append(reflection)
         parts.append(closing)
-        return " ".join(parts).strip()
+        return " ".join(part for part in parts if part).strip()
 
     def _postprocess_reply(self, text: str) -> str:
         if not text:
