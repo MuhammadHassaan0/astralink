@@ -75,6 +75,19 @@ def _ensure_tables() -> None:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_convo ON messages(convo_id, id)")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_stats (
+                    user_id TEXT PRIMARY KEY,
+                    messages_sent BIGINT DEFAULT 0,
+                    messages_received BIGINT DEFAULT 0,
+                    conversations_started BIGINT DEFAULT 0,
+                    last_seen TEXT,
+                    last_conversation_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
         else:
             cur.execute(
                 """
@@ -101,11 +114,77 @@ def _ensure_tables() -> None:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_convo ON messages(convo_id, id)")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_stats (
+                    user_id TEXT PRIMARY KEY,
+                    messages_sent INTEGER DEFAULT 0,
+                    messages_received INTEGER DEFAULT 0,
+                    conversations_started INTEGER DEFAULT 0,
+                    last_seen TEXT,
+                    last_conversation_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
         conn.commit()
         conn.close()
 
 
 _ensure_tables()
+
+
+def _bump_user_stats(
+    cur,
+    user_id: str,
+    messages_sent: int = 0,
+    messages_received: int = 0,
+    conversations_started: int = 0,
+    last_conversation_id: Optional[str] = None,
+    ts: Optional[str] = None,
+) -> None:
+    ts = ts or _now()
+    cur.execute(
+        f"""
+        INSERT INTO user_stats (user_id, messages_sent, messages_received, conversations_started, last_seen, last_conversation_id, created_at)
+        VALUES ({_ph(7)})
+        ON CONFLICT (user_id) DO UPDATE SET
+            messages_sent = user_stats.messages_sent + {_ph(1)},
+            messages_received = user_stats.messages_received + {_ph(1)},
+            conversations_started = user_stats.conversations_started + {_ph(1)},
+            last_seen = {_ph(1)},
+            last_conversation_id = {_ph(1)}
+        """,
+        (
+            user_id,
+            messages_sent,
+            messages_received,
+            conversations_started,
+            ts,
+            last_conversation_id or "",
+            ts,
+            messages_sent,
+            messages_received,
+            conversations_started,
+            ts,
+            last_conversation_id or "",
+        ),
+    )
+
+
+def user_stats(user_id: str) -> Dict[str, Optional[str]]:
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT user_id, messages_sent, messages_received, conversations_started, last_seen, last_conversation_id, created_at
+            FROM user_stats
+            WHERE user_id = {_ph(1)}
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else {}
 
 
 def list_conversations(user_id: str) -> List[Dict]:
@@ -135,6 +214,7 @@ def create_conversation(user_id: str, title: str) -> Dict:
     with _connect() as conn:
         cur = conn.cursor()
         cur.execute(sql, (convo_id, user_id, clean_title, now, now))
+        _bump_user_stats(cur, user_id, conversations_started=1, last_conversation_id=convo_id, ts=now)
         conn.commit()
     return {
         "id": convo_id,
@@ -193,6 +273,10 @@ def append_message(user_id: str, convo_id: str, role: str, text: str, ts: Option
             f"UPDATE conversations SET updated_at = {_ph(1)} WHERE id = {_ph(1)}",
             (ts, convo_id),
         )
+        if role == "user":
+            _bump_user_stats(cur, user_id, messages_sent=1, last_conversation_id=convo_id, ts=ts)
+        elif role == "assistant":
+            _bump_user_stats(cur, user_id, messages_received=1, last_conversation_id=convo_id, ts=ts)
         conn.commit()
     return True
 
