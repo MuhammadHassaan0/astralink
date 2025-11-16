@@ -302,7 +302,7 @@
             <div class="flex items-center gap-3 text-xs text-white/60">
               <span id="chatSessionStatus">Session —</span>
               <button id="chatLogoutBtn" class="text-white/70 hover:text-white transition-colors" type="button">Log out</button>
-              <a href="/interview" aria-label="Edit profile" class="flex items-center justify-center size-9 rounded-full border border-white/15 text-white/70 hover:text-white hover:border-white/40 transition-colors">
+              <a href="/beta/interview" aria-label="Edit profile" class="flex items-center justify-center size-9 rounded-full border border-white/15 text-white/70 hover:text-white hover:border-white/40 transition-colors">
                 <span class="material-symbols-outlined text-2xl">settings</span>
               </a>
             </div>
@@ -326,7 +326,7 @@
               <span class="material-symbols-outlined text-2xl">send</span>
             </button>
           </div>
-          <p id="chatStatusText" class="text-xs text-white/60 mt-2"></p>
+          <p id="chatStatusText" class="text-xs text-white/60 mt-2">Tip: Use specific moments, names, or places—those help them sound more like themselves.</p>
         </footer>
       </section>
     </div>
@@ -732,7 +732,7 @@
       sendBtn.addEventListener("click", handleSend);
       logoutBtn.addEventListener("click", async () => {
         await Astralink.logoutAccount();
-        window.location.href = "/auth.html";
+        window.location.href = "/beta/auth";
       });
 
       updateSessionStatus();
