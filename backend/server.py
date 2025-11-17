@@ -807,6 +807,26 @@ def api_diag_openai():
     return jsonify(out)
 
 
+def _require_admin():
+    expected = os.environ.get("ASTRALINK_ADMIN_TOKEN", "")
+    provided = request.headers.get("X-Astralink-Admin", "")
+    if expected and provided and expected == provided:
+        return True
+    abort(jsonify({"error": "unauthorized"}), 401)
+
+
+@app.get("/api/diag/stats")
+def api_diag_stats():
+    _require_admin()
+    user_limit = int(request.args.get("user_limit", "200"))
+    convo_id = request.args.get("convo_id")
+    stats = conversation_store.user_stats_all(limit=user_limit)
+    response = {"users": stats}
+    if convo_id:
+        response["messages"] = conversation_store.get_messages(convo_id, limit=500)
+    return jsonify(response)
+
+
 @app.route("/api/interview/transcribe", methods=["POST"])
 def api_interview_transcribe():
     audio = request.files.get("audio")

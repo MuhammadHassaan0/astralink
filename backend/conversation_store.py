@@ -187,6 +187,35 @@ def user_stats(user_id: str) -> Dict[str, Optional[str]]:
     return dict(row) if row else {}
 
 
+def user_stats_all(limit: int = 200) -> List[Dict[str, Optional[str]]]:
+    sql = f"""
+        SELECT user_id, messages_sent, messages_received, conversations_started, last_seen, last_conversation_id, created_at
+        FROM user_stats
+        ORDER BY COALESCE(last_seen, created_at) DESC
+        LIMIT {_ph(1)}
+    """
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (limit,))
+        rows = cur.fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_messages(convo_id: str, limit: int = 500) -> List[Dict[str, str]]:
+    sql = f"""
+        SELECT role, text, ts
+        FROM messages
+        WHERE convo_id = {_ph(1)}
+        ORDER BY id ASC
+        LIMIT {_ph(1)}
+    """
+    with _connect() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (convo_id, limit))
+        rows = cur.fetchall()
+    return [dict(row) for row in rows]
+
+
 def list_conversations(user_id: str) -> List[Dict]:
     sql = f"""
         SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) AS message_count
