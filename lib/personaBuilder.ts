@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { PERSONA_BUILDER_PROMPT } from "./prompts";
 
 export interface PersonaProfile {
+  id?: string;
   name: string | null;
   relationshipToUser: string | null;
   language: string;
@@ -18,6 +19,7 @@ export interface PersonaProfile {
     avoids: string[];
   };
   responseRules: string[];
+  examples?: string[];
 }
 
 const openai = new OpenAI({

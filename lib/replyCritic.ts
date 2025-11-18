@@ -33,12 +33,15 @@ export async function checkReplyQuality({
   persona,
   userMessage,
   candidateReply,
+  strict,
 }: {
   persona: PersonaProfile;
   userMessage: string;
   candidateReply: string;
+  strict?: boolean;
 }): Promise<"PASS" | "FAIL"> {
   if (hasAiTell(candidateReply)) return "FAIL";
+  if (strict && /stay positive|you'll be fine|you will be fine/i.test(candidateReply)) return "FAIL";
 
   const prompt = CRITIC_PROMPT.replace(
     "{{PERSONA_JSON}}",

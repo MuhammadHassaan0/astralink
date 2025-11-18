@@ -32,30 +32,32 @@ export async function rerankCandidates(params: {
   userMessage?: string;
 }): Promise<RankedCandidate[]> {
   const { candidates, persona, userMessage = "" } = params;
-  const maxTokens = getMaxTokensForPersona(persona);
-  const allowQuestions =
-    userMessage.includes("?") || /advice|help|what should|how do/i.test(userMessage);
+  const baseMax = getMaxTokensForPersona(persona);
+  const multiplier = (persona as any).overrides?.maxTokensMultiplier ?? 1;
+  const maxTokens = Math.max(16, Math.floor(baseMax * multiplier));
+  const strict = Boolean((persona as any).overrides?.stricterCritic);
+  const allowQuestions = strict
+    ? userMessage.includes("?")
+    : userMessage.includes("?") || /advice|help|what should|how do/i.test(userMessage);
 
   const results: RankedCandidate[] = [];
 
   for (const text of candidates) {
     const banned = containsBannedPhrase(text);
     const questions = countQuestions(text);
+    const questionFail = questions > 1 && !allowQuestions;
     const criticPass =
+      !questionFail &&
       (await checkReplyQuality({
         persona,
         userMessage,
         candidateReply: text,
+        strict,
       })) === "PASS";
     const styleScore = await computeStyleSimilarity(text, persona);
-    const lengthPenalty =
-      questions > 1 && !allowQuestions
-        ? 2
-        : hasExcessiveLength(text, maxTokens)
-        ? 1
-        : 0;
+    const lengthPenalty = hasExcessiveLength(text, strict ? Math.floor(maxTokens * 0.9) : maxTokens) ? 1 : 0;
     let finalScore = styleScore - lengthPenalty;
-    if (banned || !criticPass) finalScore = -1e6;
+    if (banned || questionFail || !criticPass) finalScore = -1e6;
     const cand: RankedCandidate = {
       text,
       styleScore,

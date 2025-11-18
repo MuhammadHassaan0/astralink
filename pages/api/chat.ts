@@ -1,14 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { randomUUID } from "crypto";
 import { PersonaProfile } from "../../lib/personaBuilder";
 import { retrieveRelevantMemories } from "../../lib/retrieveMemories";
 import { classifySituationType } from "../../lib/situationRouter";
 import { retrieveRelevantEvents } from "../../lib/eventStore";
 import { generateContentPlan, rewriteInPersonaStyle } from "../../lib/stagedGeneration";
 import { rerankCandidates } from "../../lib/reranker";
+import { adaptPersonaWithFeedback } from "../../lib/adaptation";
 
 // Placeholder persona loader; replace with DB lookup
-async function loadPersona(userId: string): Promise<PersonaProfile> {
+async function loadPersona(userId: string, personaId: string): Promise<PersonaProfile> {
   return {
+    id: personaId,
     name: "",
     relationshipToUser: "parent",
     language: "en",
@@ -32,7 +35,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userMessage = String(req.body.message || "").trim();
     if (!userMessage) return res.status(400).json({ error: "message required" });
 
-    const persona = await loadPersona(userId);
+    const basePersona = await loadPersona(userId, personaId);
+    const persona = await adaptPersonaWithFeedback(basePersona);
 
     // classify situation and pull events/memories
     const situation = await classifySituationType(userMessage);
@@ -69,7 +73,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const best = ranked[0];
+    const replyId = randomUUID();
     return res.status(200).json({
+      replyId,
       reply: best?.text || candidateReplies[0],
       model_used: process.env.OPENAI_MODEL_CHAT || "gpt-5.1",
       fallback: !best?.criticPass,

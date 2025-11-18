@@ -9,17 +9,21 @@ export interface ContentPlan {
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function getMaxTokensForPersona(persona: PersonaProfile): number {
-  switch (persona.tone.typicalLength) {
-    case "very_short":
-      return 40;
-    case "short":
-      return 60;
-    case "medium":
-      return 120;
-    case "long":
-    default:
-      return 200;
-  }
+  const base = (() => {
+    switch (persona.tone.typicalLength) {
+      case "very_short":
+        return 40;
+      case "short":
+        return 60;
+      case "medium":
+        return 120;
+      case "long":
+      default:
+        return 200;
+    }
+  })();
+  const multiplier = (persona as any).overrides?.maxTokensMultiplier ?? 1;
+  return Math.max(16, Math.floor(base * multiplier));
 }
 
 export async function generateContentPlan(params: {
@@ -97,6 +101,7 @@ Draft: ${draft}
 User message: ${userMessage}
 `.trim();
 
+  // TODO: If a per-persona LoRA fine-tuned model is available, plug it in here.
   const completion = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL_CHAT || "gpt-5.1",
     temperature,
