@@ -1,18 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { generatePersonaReply } from "../../lib/responseEngine";
-import { retrieveRelevantMemories } from "../../lib/retrieveMemories";
-import { checkReplyQuality } from "../../lib/replyCritic";
 import { PersonaProfile } from "../../lib/personaBuilder";
+import { retrieveRelevantMemories } from "../../lib/retrieveMemories";
+import { classifySituationType } from "../../lib/situationRouter";
+import { retrieveRelevantEvents } from "../../lib/eventStore";
+import { generateContentPlan, rewriteInPersonaStyle } from "../../lib/stagedGeneration";
+import { rerankCandidates } from "../../lib/reranker";
 
-// Placeholder data loaders — wire to your real DB
+// Placeholder persona loader; replace with DB lookup
 async function loadPersona(userId: string): Promise<PersonaProfile> {
-  // TODO: replace with real DB lookup
   return {
     name: "",
     relationshipToUser: "parent",
     language: "en",
     defaultFormality: "informal",
-    tone: { energy: "medium", warmth: "high", humor: "light", typicalLength: "medium" },
+    tone: { energy: "medium", warmth: "medium", humor: "none", typicalLength: "short" },
     catchphrases: [],
     topics: { loves: [], avoids: [] },
     responseRules: [],
@@ -32,26 +33,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!userMessage) return res.status(400).json({ error: "message required" });
 
     const persona = await loadPersona(userId);
+
+    // classify situation and pull events/memories
+    const situation = await classifySituationType(userMessage);
+    const events = await retrieveRelevantEvents({
+      personaId,
+      userId,
+      situation: situation.situation,
+      userMessage,
+      maxEvents: 3,
+    });
     const memories = await retrieveRelevantMemories({ personaId, userId, userMessage, maxMemories: 5 });
 
-    let replyObj = await generatePersonaReply({ persona, memories, userMessage });
-    let verdict = await checkReplyQuality({ persona, userMessage, candidateReply: replyObj.reply });
+    // Stage 1: content plan
+    const contentPlan = await generateContentPlan({
+      persona,
+      userMessage,
+      events,
+      memories,
+    });
 
-    // Simple anti-GPT heuristic
-    const forbidden = [
-      "as an ai",
-      "i am here to help",
-      "how are you feeling today",
-      "hope you're doing well",
+    // Stage 2: multiple style rewrites
+    const candidatePromises = [
+      rewriteInPersonaStyle({ persona, draft: contentPlan.draft, userMessage, temperature: 0.3 }),
+      rewriteInPersonaStyle({ persona, draft: contentPlan.draft, userMessage, temperature: 0.35 }),
+      rewriteInPersonaStyle({ persona, draft: contentPlan.draft, userMessage, temperature: 0.4 }),
     ];
-    const hasBadPhrase = forbidden.some((p) => replyObj.reply.toLowerCase().includes(p));
+    const candidateReplies = await Promise.all(candidatePromises);
 
-    if (verdict === "FAIL" || hasBadPhrase) {
-      replyObj = await generatePersonaReply({ persona, memories, userMessage });
-      verdict = await checkReplyQuality({ persona, userMessage, candidateReply: replyObj.reply });
-    }
+    // Re-rank
+    const ranked = await rerankCandidates({
+      candidates: candidateReplies,
+      persona,
+      userMessage,
+    });
 
-    return res.status(200).json({ reply: replyObj.reply, model_used: replyObj.modelUsed, fallback: replyObj.usedFallback, verdict });
+    const best = ranked[0];
+    return res.status(200).json({
+      reply: best?.text || candidateReplies[0],
+      model_used: process.env.OPENAI_MODEL_CHAT || "gpt-5.1",
+      fallback: !best?.criticPass,
+      debug: {
+        draft: contentPlan.draft,
+        candidates: ranked,
+        situation,
+      },
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || "server_error" });
   }
