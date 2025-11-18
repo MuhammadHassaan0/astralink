@@ -114,6 +114,23 @@ def _normalize_text(text: str) -> str:
     return (text or "").strip().lower()
 
 
+def _contains_greek(text: str) -> bool:
+    return any("α" <= ch <= "ω" or "Α" <= ch <= "Ω" for ch in text)
+
+
+def _infer_language(user_message: str, profile: Dict) -> str:
+    lang = (profile.get("language") or "").strip()
+    if lang:
+        return lang
+    clean = _normalize_text(user_message)
+    if _contains_greek(clean):
+        return "Greek"
+    non_ascii = sum(1 for ch in user_message if ord(ch) > 127)
+    if non_ascii > max(3, len(user_message) // 5):
+        return "Non-English"
+    return "English"
+
+
 def _is_simple_prompt(text: str) -> bool:
     clean = _normalize_text(text)
     if len(clean.split()) <= 5:
@@ -507,6 +524,7 @@ class AstralinkCore:
         details: Dict[str, List[str]],
         memory_hits: List[str],
         user_message: str,
+        language: str,
     ) -> str:
         name = profile.get("name") or "Your loved one"
         relationship = profile.get("relationship") or "person you love"
@@ -540,6 +558,7 @@ class AstralinkCore:
 
         prompt_sections = [
             f"You are {name}, speaking with someone who misses you deeply (they are your {relationship}, you call them '{call_you}').",
+            f"Respond in {language}, mirroring their language unless they switched.",
             "COMMUNICATION STYLE:",
             "\n".join(style_lines),
         ]
@@ -704,6 +723,7 @@ class AstralinkCore:
         comm_style = self._derive_communication_style(profile, memory_hits, details)
         question_type = self._classify_question(text)
         length_label, max_tokens = self._select_response_length(question_type, comm_style.get("length_pref", "moderate"))
+        language = _infer_language(text, profile)
         system_prompt = self._build_system_prompt(
             profile,
             comm_style,
@@ -712,6 +732,7 @@ class AstralinkCore:
             details,
             memory_hits,
             text,
+            language,
         )
         strict = self._strict_errors_enabled()
 
