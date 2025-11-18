@@ -62,8 +62,8 @@
 <body>
   <div class="max-w-5xl mx-auto px-4 py-10 space-y-8">
     <header class="flex items-center justify-between">
-      <a href="/" class="text-xl font-semibold tracking-tight text-white" style="font-family:'Spectral',serif;letter-spacing:0.05em;">AstraLink</a>
-      <a href="/" class="text-sm text-white/70 hover:text-white transition">Back to home</a>
+      <a href="/beta" class="text-xl font-semibold tracking-tight text-white" style="font-family:'Spectral',serif;letter-spacing:0.05em;">AstraLink</a>
+      <a href="/beta" class="text-sm text-white/70 hover:text-white transition">Back to home</a>
     </header>
     <section class="auth-card p-8 md:p-10 space-y-8" data-animate>
       <div class="space-y-2 text-center" data-animate data-animate-delay="80ms">
@@ -115,7 +115,7 @@
       const statusEl = document.getElementById("authStatus");
 
       if (Astralink.isAuthenticated()) {
-        window.location.href = "/interview";
+        window.location.href = "/beta/interview";
         return;
       }
 
@@ -139,7 +139,7 @@
           const password = document.getElementById("signupPassword").value;
           await Astralink.signupAccount(name, email, password);
           statusEl.textContent = "Account created. Redirecting…";
-          window.location.href = "/interview";
+          window.location.href = "/beta/interview";
         } catch (err) {
           statusEl.textContent = err.message;
         }
@@ -153,7 +153,7 @@
           const password = document.getElementById("loginPassword").value;
           await Astralink.loginAccount(email, password);
           statusEl.textContent = "Welcome back.";
-          window.location.href = "/interview";
+          window.location.href = "/beta/interview";
         } catch (err) {
           statusEl.textContent = err.message;
         }

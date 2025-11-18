@@ -48,12 +48,12 @@
 <body>
   <div class="container-shell space-y-8">
     <header class="flex items-center justify-between">
-      <a href="/" class="brand-mark text-white">AstraLink</a>
+      <a href="/beta" class="brand-mark text-white">AstraLink</a>
       <nav class="hidden md:flex gap-6 text-sm text-white/70">
-        <a href="/" class="hover:text-white">Home</a>
-        <a href="/how" class="hover:text-white">How it works</a>
-        <a href="/profile" class="hover:text-white">Profile</a>
-        <a href="/chat" class="hover:text-white">Chat</a>
+        <a href="/beta" class="hover:text-white">Home</a>
+        <a href="/beta/how" class="hover:text-white">How it works</a>
+        <a href="/beta/profile" class="hover:text-white">Profile</a>
+        <a href="/beta/chat" class="hover:text-white">Chat</a>
       </nav>
       <div class="flex items-center gap-3 text-sm text-white/70">
         <span id="sessionBadge">Session —</span>
@@ -92,7 +92,7 @@
       </div>
 
       <div class="text-center text-sm text-white/70">
-        When you’re ready, continue to the <a href="/interview" class="text-[#8B7FD6] underline">AI interview →</a>
+        When you’re ready, continue to the <a href="/beta/interview" class="text-[#8B7FD6] underline">AI interview →</a>
       </div>
     </section>
   </div>
@@ -196,7 +196,7 @@
         } else {
           logoutBtn.textContent = "Log in";
           logoutBtn.addEventListener("click", () => {
-            window.location.href = "/auth.html";
+            window.location.href = "/beta/auth";
           });
         }
       }
