@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { v4 as uuidv4 } from "uuid";
 import { MEMORY_TAGGER_PROMPT } from "./prompts";
+import { extractEventMemoriesFromText } from "./eventStore";
 
 export interface Memory {
   id: string;
@@ -94,6 +95,8 @@ export async function ingestMemories(
       memoryDB.push(memory);
       output.push(memory);
     }
+    // Also extract event memories
+    await extractEventMemoriesFromText(raw, userId, personaId).catch(() => undefined);
   }
   return output;
 }
