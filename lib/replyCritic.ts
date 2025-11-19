@@ -68,7 +68,7 @@ function containsBanned(reply: string, banned: string[]): boolean {
 
 const POETIC_REGEX = /(gentle breeze|soft glow|eternal|echoes of|lingering warmth|fading light)/i;
 
-export async function checkReplyQuality({
+export async function runReplyCritic({
   persona,
   userMessage,
   candidateReply,
@@ -128,3 +128,5 @@ export async function checkReplyQuality({
   const verdict = (completion.choices[0]?.message?.content || "FAIL").trim().toUpperCase();
   return verdict.includes("PASS") ? "PASS" : "FAIL";
 }
+
+export const checkReplyQuality = runReplyCritic;

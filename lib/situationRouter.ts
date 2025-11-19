@@ -54,3 +54,7 @@ export async function classifySituationType(
     return { situation: "other", confidence: 0.5 };
   }
 }
+
+export async function getSituationForMessage(userMessage: string) {
+  return classifySituationType(userMessage);
+}

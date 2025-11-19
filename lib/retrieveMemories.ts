@@ -37,3 +37,12 @@ export async function retrieveRelevantMemories({
   const queryEmbedding = embedResp.data[0]?.embedding || [];
   return vectorSearch(personaId, userId, queryEmbedding, maxMemories);
 }
+
+export async function retrieveMemoriesForChat(params: {
+  personaId: string;
+  userId: string;
+  userMessage: string;
+  maxMemories?: number;
+}) {
+  return retrieveRelevantMemories(params);
+}

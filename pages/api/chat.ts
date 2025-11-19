@@ -1,31 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { randomUUID } from "crypto";
-import { PersonaProfile } from "../../lib/personaBuilder";
-import { retrieveRelevantMemories } from "../../lib/retrieveMemories";
-import { classifySituationType } from "../../lib/situationRouter";
-import { retrieveRelevantEvents } from "../../lib/eventStore";
-import { generateContentPlan, rewriteInPersonaStyle } from "../../lib/stagedGeneration";
+import { loadPersona } from "../../lib/personaBuilder";
+import type { PersonaProfile } from "../../lib/personaBuilder";
+import { retrieveMemoriesForChat } from "../../lib/retrieveMemories";
+import { getSituationForMessage } from "../../lib/situationRouter";
+import { retrieveRelevantEvents, appendEvent } from "../../lib/eventStore";
+import { stagedGenerate } from "../../lib/stagedGeneration";
 import { rerankCandidates } from "../../lib/reranker";
 import { adaptPersonaWithFeedback } from "../../lib/adaptation";
-import { buildPersonaFingerprint, deriveFallbackFingerprint, PersonaFingerprint } from "../../lib/personaFingerprint";
+import {
+  buildPersonaFingerprint,
+  deriveFallbackFingerprint,
+  PersonaFingerprint,
+} from "../../lib/personaFingerprint";
 import { derivePersonaSpeakingRules } from "../../lib/personaRules";
 import { chooseLanguage, LanguageMode } from "../../lib/languageRouter";
-import { checkReplyQuality } from "../../lib/replyCritic";
-
-// Placeholder persona loader; replace with DB lookup
-async function loadPersona(userId: string, personaId: string): Promise<PersonaProfile> {
-  return {
-    id: personaId,
-    name: "",
-    relationshipToUser: "parent",
-    language: "en",
-    defaultFormality: "informal",
-    tone: { energy: "medium", warmth: "medium", humor: "none", typicalLength: "short" },
-    catchphrases: [],
-    topics: { loves: [], avoids: [] },
-    responseRules: [],
-  };
-}
+import { runReplyCritic } from "../../lib/replyCritic";
 
 async function loadFingerprint(persona: PersonaProfile): Promise<PersonaFingerprint> {
   try {
@@ -36,6 +26,8 @@ async function loadFingerprint(persona: PersonaProfile): Promise<PersonaFingerpr
   }
 }
 
+type ChatMessage = { role: "user" | "assistant" | string; content: string };
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -43,10 +35,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const userId = String(req.body.userId || "anon");
-    const personaId = String(req.body.personaId || "default");
-    const userMessage = String(req.body.message || "").trim();
-    if (!userMessage) return res.status(400).json({ error: "message required" });
+    const body = req.body || {};
+    const userId = String(body.userId || "anon");
+    const personaId = String(body.personaId || "default");
+    const messages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : [];
+    const fallbackMessage = typeof body.message === "string" ? body.message : "";
+    const latestContent = messages.length ? messages[messages.length - 1]?.content : fallbackMessage;
+    const userMessage = String(latestContent || "").trim();
+    if (!userMessage) {
+      return res.status(400).json({ error: "message required" });
+    }
 
     const basePersona = await loadPersona(userId, personaId);
     const persona = await adaptPersonaWithFeedback(basePersona);
@@ -54,84 +52,78 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const speakingRules = derivePersonaSpeakingRules(persona, fingerprint);
     const targetLanguage: LanguageMode = chooseLanguage(speakingRules, userMessage);
 
-    // classify situation and pull events/memories
-    const situation = await classifySituationType(userMessage);
-    const events = await retrieveRelevantEvents({
-      personaId,
-      userId,
-      situation: situation.situation,
-      userMessage,
-      maxEvents: 3,
-    });
-    const memories = await retrieveRelevantMemories({ personaId, userId, userMessage, maxMemories: 5 });
+    const situation = await getSituationForMessage(userMessage);
+    const [events, memories] = await Promise.all([
+      retrieveRelevantEvents({
+        personaId,
+        userId,
+        situation: situation.situation,
+        userMessage,
+        maxEvents: 3,
+      }),
+      retrieveMemoriesForChat({ personaId, userId, userMessage, maxMemories: 5 }),
+    ]);
 
-    // Stage 1: content plan
-    const contentPlan = await generateContentPlan({
+    const generation = await stagedGenerate({
       persona,
+      fingerprint,
+      rules: speakingRules,
+      targetLanguage,
       userMessage,
       events,
       memories,
     });
 
-    // Stage 2: multiple style rewrites
-    async function produceCandidate(baseTemp: number): Promise<string> {
-      let attempt = 0;
-      let latest = "";
-      while (attempt < 3) {
-        latest = await rewriteInPersonaStyle({
-          persona,
-          draft: contentPlan.draft,
-          userMessage,
-          fingerprint,
-          rules: speakingRules,
-          targetLanguage,
-          temperature: baseTemp - attempt * 0.05,
-          attempt,
-        });
-        const verdict = await checkReplyQuality({
-          persona,
-          userMessage,
-          candidateReply: latest,
-          rules: speakingRules,
-          fingerprint,
-          languageMode: targetLanguage,
-          strict: true,
-        });
-        if (verdict === "PASS") break;
-        attempt += 1;
+    const survivingCandidates: string[] = [];
+    for (const candidate of generation.candidates) {
+      const verdict = await runReplyCritic({
+        persona,
+        userMessage,
+        candidateReply: candidate,
+        rules: speakingRules,
+        fingerprint,
+        languageMode: targetLanguage,
+        strict: true,
+      });
+      if (verdict === "PASS") {
+        survivingCandidates.push(candidate);
       }
-      return latest;
     }
 
-    const candidateReplies = await Promise.all([
-      produceCandidate(0.3),
-      produceCandidate(0.35),
-      produceCandidate(0.4),
-    ]);
+    let finalReply = "";
+    let fallbackUsed = false;
+    if (survivingCandidates.length) {
+      const ranked = await rerankCandidates({
+        candidates: survivingCandidates,
+        persona,
+        userMessage,
+        rules: speakingRules,
+        fingerprint,
+        languageMode: targetLanguage,
+      });
+      finalReply = ranked[0]?.text || survivingCandidates[0];
+    } else {
+      fallbackUsed = true;
+      const marker = speakingRules.requiredMarkers?.[0] || "";
+      finalReply = `${marker ? marker + " " : ""}I'm listening.`.trim();
+    }
 
-    // Re-rank
-    const ranked = await rerankCandidates({
-      candidates: candidateReplies,
-      persona,
+    const replyId = randomUUID();
+    await appendEvent({
+      userId,
+      personaId,
+      situation: situation.situation,
       userMessage,
-      rules: speakingRules,
-      fingerprint,
-      languageMode: targetLanguage,
+      personaReply: finalReply,
     });
 
-    const best = ranked[0];
-    const replyId = randomUUID();
     return res.status(200).json({
       replyId,
-      reply: best?.text || candidateReplies[0],
-      model_used: process.env.OPENAI_MODEL_CHAT || "gpt-5.1",
-      fallback: !best?.criticPass,
-      debug: {
-        draft: contentPlan.draft,
-        candidates: ranked,
-        situation,
+      content: finalReply,
+      fallback: fallbackUsed,
+      personaDebug: {
+        energy: persona.tone.energy,
         speakingRules,
-        fingerprint,
       },
     });
   } catch (err: any) {

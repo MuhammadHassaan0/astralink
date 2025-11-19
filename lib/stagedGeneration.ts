@@ -159,3 +159,59 @@ ${userMessage}
   const raw = (completion.choices[0]?.message?.content || "").trim();
   return enforceSpeakingRules(raw, rules);
 }
+
+export interface StagedGenerateParams {
+  persona: PersonaProfile;
+  fingerprint: PersonaFingerprint;
+  rules: SpeakingRules;
+  targetLanguage: LanguageMode;
+  userMessage: string;
+  events: EventMemory[];
+  memories: { text: string }[];
+  temperatures?: number[];
+  maxAttempts?: number;
+}
+
+export interface StagedGenerateResult {
+  draft: string;
+  candidates: string[];
+}
+
+export async function stagedGenerate(params: StagedGenerateParams): Promise<StagedGenerateResult> {
+  const {
+    persona,
+    fingerprint,
+    rules,
+    targetLanguage,
+    userMessage,
+    events,
+    memories,
+    temperatures = [0.3, 0.35, 0.4],
+    maxAttempts = 2,
+  } = params;
+
+  const plan = await generateContentPlan({ persona, userMessage, events, memories });
+  const candidates: string[] = [];
+
+  for (const baseTemp of temperatures) {
+    let attempt = 0;
+    let reply = "";
+    while (attempt <= maxAttempts) {
+      reply = await rewriteInPersonaStyle({
+        persona,
+        draft: plan.draft,
+        userMessage,
+        fingerprint,
+        rules,
+        targetLanguage,
+        temperature: baseTemp - attempt * 0.05,
+        attempt,
+      });
+      if (reply) break;
+      attempt += 1;
+    }
+    candidates.push(reply);
+  }
+
+  return { draft: plan.draft, candidates };
+}

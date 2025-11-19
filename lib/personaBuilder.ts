@@ -31,6 +31,38 @@ export interface PersonaProfile {
   };
 }
 
+// TODO: replace with a persistent persona lookup (DB, KV, etc.)
+export async function loadPersona(
+  userId: string,
+  personaId: string
+): Promise<PersonaProfile> {
+  return {
+    id: personaId,
+    name: null,
+    relationshipToUser: "parent",
+    language: "en",
+    defaultFormality: "informal",
+    tone: {
+      energy: "low",
+      warmth: "medium",
+      humor: "none",
+      typicalLength: "short",
+    },
+    catchphrases: ["beta"],
+    topics: { loves: [], avoids: [] },
+    responseRules: ["never use emojis", "rarely ask questions"],
+    speakingRules: {
+      maxSentences: 2,
+      maxTokens: 40,
+      forbidQuestions: true,
+      defaultLanguage: "english",
+      energy: "low",
+      bannedPhrases: [],
+      requiredMarkers: ["beta"],
+    },
+  };
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });

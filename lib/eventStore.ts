@@ -29,6 +29,16 @@ export interface EventMemory {
 
 // TODO: replace with real persistence
 const eventStore: EventMemory[] = [];
+interface ConversationEvent {
+  id: string;
+  userId: string;
+  personaId: string;
+  situation: SituationType;
+  userMessage: string;
+  personaReply: string;
+  createdAt: Date;
+}
+const conversationEvents: ConversationEvent[] = [];
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -155,4 +165,20 @@ export async function retrieveRelevantEvents(params: {
     .slice(0, maxEvents)
     .map((s) => s.e);
   return scored;
+}
+
+export async function appendEvent(params: {
+  userId: string;
+  personaId: string;
+  situation: SituationType;
+  userMessage: string;
+  personaReply: string;
+}) {
+  const entry: ConversationEvent = {
+    id: uuidv4(),
+    createdAt: new Date(),
+    ...params,
+  };
+  conversationEvents.push(entry);
+  return entry;
 }

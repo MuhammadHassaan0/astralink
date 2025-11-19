@@ -1,7 +1,7 @@
 import { PersonaProfile } from "./personaBuilder";
 import { computeStyleSimilarity } from "./styleSimilarity";
 import { containsBannedPhrase, countQuestions, hasExcessiveLength } from "./textGuards";
-import { checkReplyQuality } from "./replyCritic";
+import { runReplyCritic } from "./replyCritic";
 import { SpeakingRules } from "./personaRules";
 import { PersonaFingerprint } from "./personaFingerprint";
 import { LanguageMode } from "./languageRouter";
@@ -52,7 +52,7 @@ export async function rerankCandidates(params: {
     const questionFail = (rules.forbidQuestions && questions > 0) || (questions > 1 && !allowQuestions);
     const criticPass =
       !questionFail &&
-      (await checkReplyQuality({
+      (await runReplyCritic({
         persona,
         userMessage,
         candidateReply: text,
