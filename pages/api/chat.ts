@@ -34,24 +34,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { userId, personaId, messages } = (req.body || {}) as {
+    const body = req.body || {};
+    let { userId, personaId, messages, message } = body as {
       userId?: string;
       personaId?: string;
-      messages?: ChatMessage[];
+      messages?: ChatMessage[] | any;
+      message?: string;
     };
 
-    if (!messages || !Array.isArray(messages) || !messages.length) {
-      return res.status(400).json({ ok: false, error: "Empty message list" });
+    if (Array.isArray(messages)) {
+      messages = messages
+        .filter((item) => item && typeof item.content !== "undefined")
+        .map((item) => ({
+          role: typeof item?.role === "string" ? item.role : "user",
+          content: String(item?.content ?? ""),
+        }));
+    } else if (messages && typeof messages === "object") {
+      const single = {
+        role: typeof messages.role === "string" ? messages.role : "user",
+        content: String(messages.content ?? ""),
+      };
+      messages = [single];
+    } else if (typeof message === "string") {
+      messages = [{ role: "user", content: String(message) }];
     }
 
-    const latest = messages[messages.length - 1];
-    if (!latest || latest.role !== "user" || !latest.content?.trim()) {
+    const normalizedMessages: ChatMessage[] = Array.isArray(messages) ? (messages as ChatMessage[]) : [];
+
+    console.log("CHAT_DEBUG_BODY", JSON.stringify({ userId, personaId, messages: normalizedMessages }, null, 2));
+
+    const hasMessages = normalizedMessages.length > 0;
+    const last = hasMessages ? normalizedMessages[normalizedMessages.length - 1] : undefined;
+    const lastContent = typeof last?.content === "string" ? last.content.trim() : "";
+
+    if (!hasMessages || lastContent.length === 0) {
       return res.status(400).json({ ok: false, error: "Empty message" });
     }
 
     const resolvedUserId = String(userId || "anon");
     const resolvedPersonaId = String(personaId || "default");
-    const userMessage = latest.content.trim();
+    const userMessage = lastContent;
 
     const basePersona = await loadPersona(resolvedUserId, resolvedPersonaId);
     const persona = await adaptPersonaWithFeedback(basePersona);
