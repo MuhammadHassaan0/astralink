@@ -2,6 +2,9 @@ import { PersonaProfile } from "./personaBuilder";
 import { computeStyleSimilarity } from "./styleSimilarity";
 import { containsBannedPhrase, countQuestions, hasExcessiveLength } from "./textGuards";
 import { checkReplyQuality } from "./replyCritic";
+import { SpeakingRules } from "./personaRules";
+import { PersonaFingerprint } from "./personaFingerprint";
+import { LanguageMode } from "./languageRouter";
 
 export interface RankedCandidate {
   text: string;
@@ -30,28 +33,32 @@ export async function rerankCandidates(params: {
   candidates: string[];
   persona: PersonaProfile;
   userMessage?: string;
+  rules: SpeakingRules;
+  fingerprint: PersonaFingerprint;
+  languageMode: LanguageMode;
 }): Promise<RankedCandidate[]> {
-  const { candidates, persona, userMessage = "" } = params;
+  const { candidates, persona, userMessage = "", rules, fingerprint, languageMode } = params;
   const baseMax = getMaxTokensForPersona(persona);
   const multiplier = (persona as any).overrides?.maxTokensMultiplier ?? 1;
   const maxTokens = Math.max(16, Math.floor(baseMax * multiplier));
   const strict = Boolean((persona as any).overrides?.stricterCritic);
-  const allowQuestions = strict
-    ? userMessage.includes("?")
-    : userMessage.includes("?") || /advice|help|what should|how do/i.test(userMessage);
+  const allowQuestions = !rules.forbidQuestions && (userMessage.includes("?") || /advice|help|what should|how do/i.test(userMessage));
 
   const results: RankedCandidate[] = [];
 
   for (const text of candidates) {
     const banned = containsBannedPhrase(text);
     const questions = countQuestions(text);
-    const questionFail = questions > 1 && !allowQuestions;
+    const questionFail = (rules.forbidQuestions && questions > 0) || (questions > 1 && !allowQuestions);
     const criticPass =
       !questionFail &&
       (await checkReplyQuality({
         persona,
         userMessage,
         candidateReply: text,
+        rules,
+        fingerprint,
+        languageMode,
         strict,
       })) === "PASS";
     const styleScore = await computeStyleSimilarity(text, persona);

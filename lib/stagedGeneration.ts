@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import { PersonaProfile } from "./personaBuilder";
 import { EventMemory } from "./eventStore";
+import { PersonaFingerprint } from "./personaFingerprint";
+import { SpeakingRules } from "./personaRules";
+import { LanguageMode } from "./languageRouter";
 
 export interface ContentPlan {
   draft: string;
@@ -79,35 +82,80 @@ Return JSON: { "draft": "<neutral draft>" }
   }
 }
 
+function enforceSpeakingRules(reply: string, rules: SpeakingRules): string {
+  let trimmed = reply.trim();
+  if (rules.energy === "low") {
+    trimmed = trimmed.replace(/!/g, ".");
+  }
+
+  const sentences = trimmed.split(/(?<=[.!?])/).filter((s) => s.trim());
+  if (sentences.length > rules.maxSentences) {
+    trimmed = sentences.slice(0, rules.maxSentences).join(" ").trim();
+  }
+
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (tokens.length > rules.maxTokens) {
+    trimmed = tokens.slice(0, rules.maxTokens).join(" ").trim();
+  }
+
+  if (rules.requiredMarkers?.length && !rules.requiredMarkers.some((m) => trimmed.toLowerCase().includes(m.toLowerCase()))) {
+    trimmed = `${rules.requiredMarkers[0]} ${trimmed}`.trim();
+  }
+  return trimmed;
+}
+
 export async function rewriteInPersonaStyle(params: {
   persona: PersonaProfile;
   draft: string;
   userMessage: string;
+  fingerprint: PersonaFingerprint;
+  rules: SpeakingRules;
+  targetLanguage: LanguageMode;
   temperature?: number;
+  attempt?: number;
 }): Promise<string> {
-  const { persona, draft, userMessage, temperature = 0.3 } = params;
+  const { persona, draft, userMessage, fingerprint, rules, targetLanguage, temperature = 0.3, attempt = 0 } = params;
   const maxTokens = getMaxTokensForPersona(persona);
-  const prompt = `
-Rewrite the draft in the persona's voice, language, and tone.
-- Reply ONLY in ${persona.language}.
-- Match energy=${persona.tone.energy} and keep length very short for short/very_short personas.
-- Use catchphrases only when natural.
-- Avoid follow-up questions unless the user asked a direct question.
-- Avoid therapy, motivational speeches, or GPT clichés.
-- Do not add new ideas beyond the draft.
-- Never mention being an AI. No generic chatbot lines.
+  const templateLines = fingerprint.sentenceTemplates.map((t) => `- ${t}`).join("\n");
+  const filler = fingerprint.fillerWords.join(", ") || "(none)";
+  const markerLine = rules.requiredMarkers?.length ? rules.requiredMarkers.join(", ") : "(none)";
+  const bannedLine = rules.bannedPhrases.length ? rules.bannedPhrases.join(", ") : "(global banned)";
 
-Draft: ${draft}
-User message: ${userMessage}
+  const tighten = attempt > 0 ? "Previous reply was too generic or long; now respond even shorter and calmer." : "";
+
+  const prompt = `
+Rewrite the draft strictly in the persona's voice.
+- Target language: ${targetLanguage}. Never switch languages.
+- Hard limits: max ${rules.maxSentences} sentences, ${rules.maxTokens} tokens.
+- ${rules.forbidQuestions ? "Do not ask any question." : "Ask a question only if the user explicitly asked one."}
+- Maintain energy=${rules.energy}; if low, stay flat and calm.
+- Required markers: ${markerLine} (use at least one naturally).
+- Avoid these phrases entirely: ${bannedLine}.
+- Use these sentence templates and pacing (but keep it natural):
+${templateLines}
+- Use filler words sparingly: ${filler}.
+- Use catchphrases/common phrases only when organic.
+- Remove therapy tone, poetic flourishes, or motivational speech.
+- Obey the fingerprint typical length: ${fingerprint.typicalLength}.
+- Speak like a real imperfect human from their background.
+- Do NOT add content beyond the draft ideas.
+${tighten}
+
+Draft:
+${draft}
+
+User message:
+${userMessage}
 `.trim();
 
   // TODO: If a per-persona LoRA fine-tuned model is available, plug it in here.
   const completion = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL_CHAT || "gpt-5.1",
     temperature,
-    top_p: 0.9,
+    top_p: 0.85,
     max_tokens: maxTokens,
     messages: [{ role: "system", content: prompt }],
   });
-  return (completion.choices[0]?.message?.content || "").trim();
+  const raw = (completion.choices[0]?.message?.content || "").trim();
+  return enforceSpeakingRules(raw, rules);
 }

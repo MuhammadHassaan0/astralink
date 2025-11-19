@@ -20,6 +20,15 @@ export interface PersonaProfile {
   };
   responseRules: string[];
   examples?: string[];
+  speakingRules?: {
+    maxSentences: number;
+    maxTokens: number;
+    forbidQuestions: boolean;
+    defaultLanguage: "urdu" | "english" | "mix";
+    energy: "low" | "medium" | "high";
+    bannedPhrases: string[];
+    requiredMarkers: string[];
+  };
 }
 
 const openai = new OpenAI({

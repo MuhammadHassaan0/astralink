@@ -7,6 +7,10 @@ import { retrieveRelevantEvents } from "../../lib/eventStore";
 import { generateContentPlan, rewriteInPersonaStyle } from "../../lib/stagedGeneration";
 import { rerankCandidates } from "../../lib/reranker";
 import { adaptPersonaWithFeedback } from "../../lib/adaptation";
+import { buildPersonaFingerprint, deriveFallbackFingerprint, PersonaFingerprint } from "../../lib/personaFingerprint";
+import { derivePersonaSpeakingRules } from "../../lib/personaRules";
+import { chooseLanguage, LanguageMode } from "../../lib/languageRouter";
+import { checkReplyQuality } from "../../lib/replyCritic";
 
 // Placeholder persona loader; replace with DB lookup
 async function loadPersona(userId: string, personaId: string): Promise<PersonaProfile> {
@@ -23,6 +27,15 @@ async function loadPersona(userId: string, personaId: string): Promise<PersonaPr
   };
 }
 
+async function loadFingerprint(persona: PersonaProfile): Promise<PersonaFingerprint> {
+  try {
+    return await buildPersonaFingerprint(persona, persona.examples || []);
+  } catch (err) {
+    console.warn("fingerprint fallback", err);
+    return deriveFallbackFingerprint(persona);
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -37,6 +50,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const basePersona = await loadPersona(userId, personaId);
     const persona = await adaptPersonaWithFeedback(basePersona);
+    const fingerprint = await loadFingerprint(persona);
+    const speakingRules = derivePersonaSpeakingRules(persona, fingerprint);
+    const targetLanguage: LanguageMode = chooseLanguage(speakingRules, userMessage);
 
     // classify situation and pull events/memories
     const situation = await classifySituationType(userMessage);
@@ -58,18 +74,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     // Stage 2: multiple style rewrites
-    const candidatePromises = [
-      rewriteInPersonaStyle({ persona, draft: contentPlan.draft, userMessage, temperature: 0.3 }),
-      rewriteInPersonaStyle({ persona, draft: contentPlan.draft, userMessage, temperature: 0.35 }),
-      rewriteInPersonaStyle({ persona, draft: contentPlan.draft, userMessage, temperature: 0.4 }),
-    ];
-    const candidateReplies = await Promise.all(candidatePromises);
+    async function produceCandidate(baseTemp: number): Promise<string> {
+      let attempt = 0;
+      let latest = "";
+      while (attempt < 3) {
+        latest = await rewriteInPersonaStyle({
+          persona,
+          draft: contentPlan.draft,
+          userMessage,
+          fingerprint,
+          rules: speakingRules,
+          targetLanguage,
+          temperature: baseTemp - attempt * 0.05,
+          attempt,
+        });
+        const verdict = await checkReplyQuality({
+          persona,
+          userMessage,
+          candidateReply: latest,
+          rules: speakingRules,
+          fingerprint,
+          languageMode: targetLanguage,
+          strict: true,
+        });
+        if (verdict === "PASS") break;
+        attempt += 1;
+      }
+      return latest;
+    }
+
+    const candidateReplies = await Promise.all([
+      produceCandidate(0.3),
+      produceCandidate(0.35),
+      produceCandidate(0.4),
+    ]);
 
     // Re-rank
     const ranked = await rerankCandidates({
       candidates: candidateReplies,
       persona,
       userMessage,
+      rules: speakingRules,
+      fingerprint,
+      languageMode: targetLanguage,
     });
 
     const best = ranked[0];
@@ -83,6 +130,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         draft: contentPlan.draft,
         candidates: ranked,
         situation,
+        speakingRules,
+        fingerprint,
       },
     });
   } catch (err: any) {

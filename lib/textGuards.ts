@@ -26,6 +26,18 @@ export const BANNED_PHRASES = [
   "focus on what you can control",
   "don’t hesitate to reach out",
   "don't hesitate to reach out",
+  "i understand",
+  "it's okay to feel that way",
+  "you’re stronger than you think",
+  "i'm always here for you",
+  "take it one step at a time",
+  "what’s on your mind",
+  "how are you feeling",
+  "what’s been tiring you out",
+  "do you remember how that felt",
+  "this warms my heart",
+  "stay strong",
+  "i miss you a lot",
 ];
 
 export function containsBannedPhrase(reply: string): boolean {
