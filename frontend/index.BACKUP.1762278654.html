@@ -67,6 +67,13 @@
   <script>
     // ---------- Utilities ----------
     let session_id = null;
+    const backupUserKey = "astralink_backup_user_id";
+    let backupUserId = localStorage.getItem(backupUserKey);
+    if (!backupUserId) {
+      backupUserId = (crypto.randomUUID && crypto.randomUUID()) || `user_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      localStorage.setItem(backupUserKey, backupUserId);
+    }
+    const messageHistory = [];
     function el(id){ return document.getElementById(id); }
     function addBubble(text, who){
       const div = document.createElement('div');
@@ -116,18 +123,31 @@
       if (!msg) return;
       addBubble(msg, 'user');
       el('msg').value = '';
+      messageHistory.push({ role: 'user', content: msg });
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({session_id, message: msg})
-      });
-      if (!res.ok) throw new Error('Chat failed');
-      const data = await res.json();
-
-      addBubble(data.reply, 'assistant');
-      const badge = el('credits');
-      if (badge) badge.textContent = (data.credits ?? 0) + ' messages';
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            userId: backupUserId,
+            personaId: session_id || backupUserId,
+            messages: messageHistory,
+          })
+        });
+        if (!res.ok) throw new Error('Chat failed');
+        const data = await res.json();
+        const replyText = data.content || data.reply || '';
+        if (!replyText) throw new Error('Empty reply');
+        addBubble(replyText, 'assistant');
+        messageHistory.push({ role: 'assistant', content: replyText });
+        const badge = el('credits');
+        if (badge) badge.textContent = (data.credits ?? 0) + ' messages';
+      } catch (err) {
+        messageHistory.pop();
+        alert('Chat failed: ' + (err.message || 'Unknown error'));
+        console.error(err);
+      }
     };
 
     // ---------- END SESSION ----------
@@ -146,4 +166,3 @@
   </script>
 </body>
 </html>
-

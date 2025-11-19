@@ -392,6 +392,8 @@
       const renameDrafts = {};
       let assistantReplyCount = 0;
       let gateActive = false;
+      const conversationCache = {};
+      let currentMessages = [];
 
       function updateSessionStatus() {
         const sid = Astralink.getSessionId();
@@ -471,6 +473,16 @@
         });
       }
 
+      function bumpConversationTimestamp(convoId) {
+        if (!convoId) return;
+        const idx = conversations.findIndex((c) => c.id === convoId);
+        if (idx === -1) return;
+        const updated = { ...conversations[idx], updated_at: new Date().toISOString() };
+        conversations.splice(idx, 1);
+        conversations.unshift(updated);
+        renderConversationList();
+      }
+
       function showAuthGate() {
         gateActive = true;
         authGateOverlay.classList.remove("hidden");
@@ -494,17 +506,38 @@
         showAuthGate();
       }
 
+      function normalizeMessageShape(message) {
+        return {
+          role: message.role === "assistant" ? "assistant" : "user",
+          text: message.text || message.content || "",
+          ts: message.ts || message.timestamp || message.time || new Date().toISOString(),
+        };
+      }
+
       function renderMessages(messages) {
+        const normalized = (messages || []).map(normalizeMessageShape);
+        currentMessages = normalized;
+        if (activeConversationId) {
+          conversationCache[activeConversationId] = normalized.map((msg) => ({ ...msg }));
+        }
         messagesEl.innerHTML = "";
-        if (!messages || !messages.length) {
+        if (!normalized.length) {
           emptyState.classList.remove("hidden");
           return;
         }
         emptyState.classList.add("hidden");
-        messages.forEach((msg) => {
+        normalized.forEach((msg) => {
           messagesEl.appendChild(buildMessage(msg));
         });
         scrollToBottom();
+      }
+
+      function buildApiMessages(fromMessages) {
+        const source = Array.isArray(fromMessages) ? fromMessages : currentMessages;
+        return source.map((msg) => ({
+          role: msg.role === "assistant" ? "assistant" : "user",
+          content: msg.text || "",
+        }));
       }
 
       function buildMessage(message) {
@@ -584,8 +617,15 @@
 
       async function openConversation(convoId) {
         if (!convoId) return;
+        hideError();
+        const cached = conversationCache[convoId];
+        if (cached && cached.length) {
+          activeConversationId = convoId;
+          renderConversationList();
+          renderMessages(cached);
+          return;
+        }
         try {
-          hideError();
           const convo = await Astralink.getConversation(convoId);
           activeConversationId = convo.id;
           renderConversationList();
@@ -621,24 +661,38 @@
 
         await ensureConversation();
 
-        const optimistic = { role: "user", text: message, ts: new Date().toISOString() };
-        emptyState.classList.add("hidden");
-        messagesEl.appendChild(buildMessage(optimistic));
-        scrollToBottom();
+        const previousMessages = currentMessages.map((msg) => ({ ...msg }));
+        const timestamp = new Date().toISOString();
+        const userEntry = { role: "user", text: message, ts: timestamp };
+        const nextMessages = [...previousMessages, userEntry];
         chatInput.value = "";
+        renderMessages(nextMessages);
         addTypingIndicator();
 
+        const historyForApi = buildApiMessages(currentMessages);
+        const userId = Astralink.getUserId();
+        const personaId = Astralink.getPersonaId();
+
         try {
-          const response = await Astralink.sendConversationMessage(activeConversationId, message);
+          const response = await Astralink.sendConversationMessage({
+            userId,
+            personaId,
+            messages: historyForApi,
+          });
           clearTypingIndicator();
-          renderMessages(response.messages || []);
+          const replyText = response.content || response.reply || "";
+          if (!replyText) {
+            throw new Error("They stayed silent. Try again in a moment.");
+          }
+          const assistantEntry = { role: "assistant", text: replyText, ts: new Date().toISOString() };
+          renderMessages([...currentMessages, assistantEntry]);
           assistantReplyCount += 1;
           maybeTriggerGate();
-          await loadConversations(activeConversationId);
+          bumpConversationTimestamp(activeConversationId);
         } catch (err) {
           clearTypingIndicator();
           showError(err.message || "We’re having trouble reaching them right now. Try again in a moment.");
-          await openConversation(activeConversationId);
+          renderMessages(previousMessages);
         } finally {
           sending = false;
           sendBtn.disabled = false;

@@ -4,6 +4,7 @@
     profile: "astralink_profile",
     auth: "astralink_auth_token",
   };
+  const USER_ID_KEY = "astralink_user_id";
 
   const REVEAL_STYLE = `
     [data-animate] {
@@ -86,6 +87,26 @@
       console.warn("profile parse failed", err);
       return {};
     }
+  }
+
+  function generateUserId() {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return `user_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+
+  function getUserId() {
+    let existing = localStorage.getItem(USER_ID_KEY);
+    if (!existing) {
+      existing = generateUserId();
+      localStorage.setItem(USER_ID_KEY, existing);
+    }
+    return existing;
+  }
+
+  function getPersonaId() {
+    return getSessionId() || getUserId();
   }
 
   function saveProfileLocal(profile) {
@@ -171,9 +192,48 @@
     });
   }
 
-  async function chat(message) {
-    const sid = requireSession();
-    return postJSON("/api/chat", { session_id: sid, message });
+  async function sendChatRequest(payload) {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const raw = await res.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch (err) {
+      console.error("chat parse failed", err, raw);
+      throw new Error("Chat response parse error");
+    }
+    if (!res.ok || data.error) {
+      throw new Error(data.error || "Chat request failed");
+    }
+    return data;
+  }
+
+  async function chat(input) {
+    const candidate =
+      input && typeof input === "object" && !Array.isArray(input) ? input.messages : undefined;
+    const history = Array.isArray(candidate)
+      ? candidate
+      : [
+          {
+            role: "user",
+            content:
+              typeof input === "string"
+                ? input
+                : String(
+                    (input && typeof input === "object" && "message" in input ? input.message : "") ||
+                      (input && typeof input === "object" && "content" in input ? input.content : "")
+                  ),
+          },
+        ];
+    return sendChatRequest({
+      userId: getUserId(),
+      personaId: getPersonaId(),
+      messages: history,
+    });
   }
 
   async function listConversations() {
@@ -200,12 +260,15 @@
     return data.conversation;
   }
 
-  async function sendConversationMessage(convoId, text) {
-    const data = await authFetch(`/api/conversations/${convoId}/message`, {
-      method: "POST",
-      json: { text, session_id: getSessionId() },
+  async function sendConversationMessage({ userId, personaId, messages }) {
+    if (!Array.isArray(messages) || !messages.length) {
+      throw new Error("messages array required");
+    }
+    return sendChatRequest({
+      userId: userId || getUserId(),
+      personaId: personaId || getPersonaId(),
+      messages,
     });
-    return data;
   }
 
   async function renameConversation(convoId, title) {
@@ -261,6 +324,8 @@
     setSessionId,
     getAuthToken,
     setAuthToken,
+    getUserId,
+    getPersonaId,
     isAuthenticated,
     getProfile,
     saveProfileLocal,
