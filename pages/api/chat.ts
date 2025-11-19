@@ -30,23 +30,30 @@ type ChatMessage = { role: "user" | "assistant" | string; content: string };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).end();
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
   try {
-    const body = req.body || {};
-    const userId = String(body.userId || "anon");
-    const personaId = String(body.personaId || "default");
-    const messages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : [];
-    const fallbackMessage = typeof body.message === "string" ? body.message : "";
-    const latestContent = messages.length ? messages[messages.length - 1]?.content : fallbackMessage;
-    const userMessage = String(latestContent || "").trim();
-    if (!userMessage) {
-      return res.status(400).json({ error: "message required" });
+    const { userId, personaId, messages } = (req.body || {}) as {
+      userId?: string;
+      personaId?: string;
+      messages?: ChatMessage[];
+    };
+
+    if (!messages || !Array.isArray(messages) || !messages.length) {
+      return res.status(400).json({ ok: false, error: "Empty message list" });
     }
 
-    const basePersona = await loadPersona(userId, personaId);
+    const latest = messages[messages.length - 1];
+    if (!latest || latest.role !== "user" || !latest.content?.trim()) {
+      return res.status(400).json({ ok: false, error: "Empty message" });
+    }
+
+    const resolvedUserId = String(userId || "anon");
+    const resolvedPersonaId = String(personaId || "default");
+    const userMessage = latest.content.trim();
+
+    const basePersona = await loadPersona(resolvedUserId, resolvedPersonaId);
     const persona = await adaptPersonaWithFeedback(basePersona);
     const fingerprint = await loadFingerprint(persona);
     const speakingRules = derivePersonaSpeakingRules(persona, fingerprint);
@@ -55,13 +62,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const situation = await getSituationForMessage(userMessage);
     const [events, memories] = await Promise.all([
       retrieveRelevantEvents({
-        personaId,
-        userId,
+        personaId: resolvedPersonaId,
+        userId: resolvedUserId,
         situation: situation.situation,
         userMessage,
         maxEvents: 3,
       }),
-      retrieveMemoriesForChat({ personaId, userId, userMessage, maxMemories: 5 }),
+      retrieveMemoriesForChat({
+        personaId: resolvedPersonaId,
+        userId: resolvedUserId,
+        userMessage,
+        maxMemories: 5,
+      }),
     ]);
 
     const generation = await stagedGenerate({
@@ -74,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       memories,
     });
 
-    const survivingCandidates: string[] = [];
+    const passing: string[] = [];
     for (const candidate of generation.candidates) {
       const verdict = await runReplyCritic({
         persona,
@@ -86,38 +98,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         strict: true,
       });
       if (verdict === "PASS") {
-        survivingCandidates.push(candidate);
+        passing.push(candidate);
       }
     }
 
     let finalReply = "";
     let fallbackUsed = false;
-    if (survivingCandidates.length) {
+
+    if (passing.length) {
       const ranked = await rerankCandidates({
-        candidates: survivingCandidates,
+        candidates: passing,
         persona,
         userMessage,
         rules: speakingRules,
         fingerprint,
         languageMode: targetLanguage,
       });
-      finalReply = ranked[0]?.text || survivingCandidates[0];
+      finalReply = ranked[0]?.text || passing[0];
     } else {
       fallbackUsed = true;
       const marker = speakingRules.requiredMarkers?.[0] || "";
-      finalReply = `${marker ? marker + " " : ""}I'm listening.`.trim();
+      finalReply = `${marker ? marker + " " : ""}Main yahin hoon.`.trim();
     }
 
     const replyId = randomUUID();
-    await appendEvent({
-      userId,
-      personaId,
-      situation: situation.situation,
-      userMessage,
-      personaReply: finalReply,
-    });
+    try {
+      await appendEvent({
+        userId: resolvedUserId,
+        personaId: resolvedPersonaId,
+        situation: situation.situation,
+        userMessage,
+        personaReply: finalReply,
+      });
+    } catch (logErr) {
+      console.error("appendEvent failed", logErr);
+    }
 
     return res.status(200).json({
+      ok: true,
       replyId,
       content: finalReply,
       fallback: fallbackUsed,
@@ -127,6 +145,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || "server_error" });
+    console.error("chat handler error", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
