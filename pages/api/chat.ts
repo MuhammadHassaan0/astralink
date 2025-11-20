@@ -91,7 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!hasMessages || lastContent.length === 0) {
     return res.status(400).json({
       ok: false,
-      error: "Empty message",
+      error: "Empty message v3 DEBUG",
       debug: {
         userId,
         personaId,
