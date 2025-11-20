@@ -26,50 +26,83 @@ async function loadFingerprint(persona: PersonaProfile): Promise<PersonaFingerpr
   }
 }
 
-type ChatMessage = { role: "user" | "assistant" | string; content: string };
+type ChatMessage = { role: string; content: string };
+
+function normalizeMessages(body: any): {
+  userId: string | undefined;
+  personaId: string | undefined;
+  messages: ChatMessage[];
+} {
+  const b = body || {};
+
+  const userId = b.userId ?? b.user_id ?? b.uid ?? undefined;
+  const personaId = b.personaId ?? b.persona_id ?? b.pid ?? undefined;
+
+  const messages: ChatMessage[] = [];
+
+  if (Array.isArray(b.messages)) {
+    for (const m of b.messages) {
+      if (!m) continue;
+      const role = typeof m.role === "string" && m.role.trim().length > 0 ? m.role : "user";
+      const contentCandidate =
+        typeof m.content === "string"
+          ? m.content
+          : typeof m.text === "string"
+          ? m.text
+          : typeof m.message === "string"
+          ? m.message
+          : "";
+      const content = typeof contentCandidate === "string" ? contentCandidate.trim() : "";
+      if (content.length > 0) {
+        messages.push({ role, content });
+      }
+    }
+  }
+
+  const singleCandidates = [b.message, b.text, b.content, b.input];
+  for (const c of singleCandidates) {
+    if (typeof c === "string" && c.trim().length > 0) {
+      messages.push({ role: "user", content: c.trim() });
+      break;
+    }
+  }
+
+  return { userId, personaId, messages };
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
   try {
-    const body = req.body || {};
-    let { userId, personaId, messages, message } = body as {
-      userId?: string;
-      personaId?: string;
-      messages?: ChatMessage[] | any;
-      message?: string;
-    };
+    const { userId, personaId, messages } = normalizeMessages(req.body);
 
-    if (Array.isArray(messages)) {
-      messages = messages
-        .filter((item) => item && typeof item.content !== "undefined")
-        .map((item) => ({
-          role: typeof item?.role === "string" ? item.role : "user",
-          content: String(item?.content ?? ""),
-        }));
-    } else if (messages && typeof messages === "object") {
-      const single = {
-        role: typeof messages.role === "string" ? messages.role : "user",
-        content: String(messages.content ?? ""),
-      };
-      messages = [single];
-    } else if (typeof message === "string") {
-      messages = [{ role: "user", content: String(message) }];
-    }
+    console.log(
+      "CHAT_DEBUG_BODY",
+      JSON.stringify({ userId, personaId, messages }, null, 2)
+    );
 
-    const normalizedMessages: ChatMessage[] = Array.isArray(messages) ? (messages as ChatMessage[]) : [];
+    const hasMessages = Array.isArray(messages) && messages.length > 0;
+    const lastUser = hasMessages ? [...messages].reverse().find((m) => m.role === "user") : undefined;
+    const lastContent = typeof lastUser?.content === "string" ? lastUser.content.trim() : "";
 
-    console.log("CHAT_DEBUG_BODY", JSON.stringify({ userId, personaId, messages: normalizedMessages }, null, 2));
-
-    const hasMessages = normalizedMessages.length > 0;
-    const last = hasMessages ? normalizedMessages[normalizedMessages.length - 1] : undefined;
-    const lastContent = typeof last?.content === "string" ? last.content.trim() : "";
-
-    if (!hasMessages || lastContent.length === 0) {
-      return res.status(400).json({ ok: false, error: "Empty message" });
-    }
+  if (!hasMessages || lastContent.length === 0) {
+    return res.status(400).json({
+      ok: false,
+      error: "Empty message",
+      debug: {
+        userId,
+        personaId,
+        rawBody: req.body,
+        messages,
+        hasMessages,
+        lastUser,
+        lastContent,
+      },
+    });
+  }
 
     const resolvedUserId = String(userId || "anon");
     const resolvedPersonaId = String(personaId || "default");
