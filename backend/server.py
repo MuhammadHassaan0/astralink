@@ -1,11 +1,13 @@
 # server.py
 
 import csv
+import json
 import logging
 import os
 import traceback
 from datetime import datetime
 from typing import List
+from uuid import uuid4
 
 from flask import Flask, request, jsonify, send_from_directory, abort
 
@@ -467,20 +469,104 @@ def api_upload_memories():
 # API: chat
 # -----------------------------------------------------------------------------
 
+def _normalize_messages(body: dict | None):
+    payload = body or {}
+    user_id = payload.get("userId") or payload.get("user_id") or payload.get("uid")
+    persona_id = payload.get("personaId") or payload.get("persona_id") or payload.get("pid")
+
+    normalized: List[dict] = []
+    raw_messages = payload.get("messages")
+    if isinstance(raw_messages, list):
+        for entry in raw_messages:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").strip()
+            if not role:
+                role = "user"
+            content_candidate = (
+                entry.get("content")
+                or entry.get("text")
+                or entry.get("message")
+                or ""
+            )
+            content = str(content_candidate).strip()
+            if content:
+                normalized.append({"role": role, "content": content})
+
+    if not normalized:
+        singles = [
+            payload.get("message"),
+            payload.get("text"),
+            payload.get("input"),
+            payload.get("content"),
+        ]
+        for candidate in singles:
+            if isinstance(candidate, str) and candidate.strip():
+                normalized.append({"role": "user", "content": candidate.strip()})
+                break
+
+    return user_id, persona_id, normalized
+
+
 @app.post("/chat")
 @app.post("/api/chat")
 def api_chat():
-    data = request.get_json() or {}
-    sid, _ = _resolve_session(data=data)
-    message = (data.get("message") or "").strip()
+    data = request.get_json(silent=True) or {}
+    user_id, persona_id, incoming_messages = _normalize_messages(data)
 
-    if not message:
-        resp = jsonify({"ok": False, "error": "Empty message"})
+    has_messages = isinstance(incoming_messages, list) and len(incoming_messages) > 0
+    last_user = None
+    if has_messages:
+        for entry in reversed(incoming_messages):
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").strip().lower() or "user"
+            if role == "user":
+                last_user = entry
+                break
+    last_content = ""
+    if last_user and isinstance(last_user.get("content"), str):
+        last_content = last_user["content"].strip()
+
+    app.logger.info(
+        "CHAT_DEBUG_BODY %s",
+        json.dumps(
+            {
+                "userId": user_id,
+                "personaId": persona_id,
+                "messages": incoming_messages,
+                "hasMessages": has_messages,
+                "lastUser": last_user,
+                "lastContent": last_content,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    if not has_messages or not last_content:
+        resp = jsonify({
+            "ok": False,
+            "error": "Empty message",
+            "debug": {
+                "userId": user_id,
+                "personaId": persona_id,
+                "rawBody": data,
+                "messages": incoming_messages,
+                "hasMessages": has_messages,
+                "lastUser": last_user,
+                "lastContent": last_content,
+            },
+        })
         resp.status_code = 400
         resp.headers["X-Astralink-Fallback"] = "false"
         return resp
 
-    # Ensure session exists (allows cold-start chat)
+    user_message = last_content
+    resolved_user_id = str(user_id or "anon")
+    resolved_persona_id = str(persona_id or "default")
+
+    sid, _ = _resolve_session(data=data)
+
     if not sid or sid not in core.sessions:
         sid, _ = core.new_session({})
 
@@ -489,7 +575,7 @@ def api_chat():
     try:
         reply_text, used_fallback, error_summary, model_used = core.generate_reply(
             sid=sid,
-            text=message,
+            text=user_message,
             history_override=history,
         )
     except ChatGenerationError as exc:
@@ -502,16 +588,20 @@ def api_chat():
 
     if session_obj is not None:
         ts = datetime.utcnow().isoformat() + "Z"
-        session_obj["messages"].append({"role": "user", "content": message, "ts": ts})
+        session_obj["messages"].append({"role": "user", "content": user_message, "ts": ts})
         session_obj["messages"].append({"role": "assistant", "content": reply_text, "ts": datetime.utcnow().isoformat() + "Z"})
 
+    reply_id = str(uuid4())
     body = {
         "ok": True,
+        "replyId": reply_id,
+        "content": reply_text,
+        "fallback": used_fallback,
+        "personaDebug": {},
         "session": sid,
         "session_id": sid,
         "reply": reply_text,
         "model_used": model_used,
-        "fallback": used_fallback,
     }
     if used_fallback and error_summary:
         body["error"] = error_summary
