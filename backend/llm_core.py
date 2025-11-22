@@ -52,7 +52,8 @@ def _try_call_messages(
         model=model,
         messages=messages,
         temperature=temperature,
-        max_tokens=max_tokens,
+        # Responses API for gpt-4o/gpt-5 models expects max_completion_tokens
+        max_completion_tokens=max_tokens,
     )
     txt = resp.choices[0].message.content or ""
     if not txt:

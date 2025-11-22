@@ -879,7 +879,8 @@ def api_diag_openai():
             model=out["model"],
             messages=[{"role": "user", "content": "ping"}],
             temperature=0,
-            max_tokens=1,
+            # Responses API for gpt-4o/gpt-5 requires max_completion_tokens
+            max_completion_tokens=1,
         )
         _ = resp.choices[0].message.content
         out.update({"can_call": True, "model_used": out["model"]})
